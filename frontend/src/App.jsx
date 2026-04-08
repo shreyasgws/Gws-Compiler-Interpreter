@@ -153,46 +153,48 @@ function App() {
   return (
     <div className="h-screen w-screen flex flex-col bg-primary overflow-hidden">
       {/* Header */}
-      <header className="relative flex-shrink-0 h-32 flex items-center justify-center bg-gradient-to-b from-secondary to-primary border-b border-white/5">
+      <header className="relative flex-shrink-0 h-32 flex items-center justify-center bg-gradient-to-b from-secondary to-primary border-b border-white/5 px-16 md:px-0">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className={`
             absolute left-4 top-1/2 -translate-y-1/2 z-20
-            glow-button flex items-center gap-2 px-5 py-3 rounded-lg
+            glow-button flex items-center gap-2 px-3 py-2 rounded-lg
             bg-secondary/95 backdrop-blur-sm border border-white/20
-            text-textPrimary font-medium text-sm
+            text-textPrimary font-medium text-xs
             transition-all duration-300
             hover:bg-accentCyan/20 hover:border-accentCyan/50
+            md:static md:px-5 md:py-3 md:text-sm md:translate-y-0 md:ml-0
+            ${!sidebarOpen ? 'md:translate-x-0' : ''}
           `}
         >
           {sidebarOpen ? (
             <>
-              <ChevronLeft className="w-5 h-5 text-accentCyan" />
-              <span>Close</span>
+              <ChevronLeft className="w-4 h-4 text-accentCyan md:w-5 md:h-5" />
+              <span className="md:hidden">Close</span>
             </>
           ) : (
             <>
-              <ChevronRight className="w-5 h-5 text-accentCyan" />
-              <span>Other Languages</span>
+              <ChevronRight className="w-4 h-4 text-accentCyan md:w-5 md:h-5" />
+              <span className="md:hidden">Languages</span>
             </>
           )}
         </button>
 
         <div className="flex flex-col items-center">
-          <h1 className="font-orbitron text-6xl font-black gws-gradient-text tracking-wider animate-glow">
+          <h1 className="font-orbitron text-5xl md:text-6xl font-black gws-gradient-text tracking-wider animate-glow">
             GWS
           </h1>
-          <p className={`mt-2 font-inter text-white/80 text-lg tracking-wide ${(currentLang === 'cpp' || currentLang === 'c') ? 'drop-shadow-[0_0_12px_rgba(0,212,255,0.7)]' : 'drop-shadow-[0_0_8px_rgba(0,212,255,0.5)]'}`}>
+          <p className={`mt-1 md:mt-2 font-inter text-white/80 text-base md:text-lg tracking-wide ${(currentLang === 'cpp' || currentLang === 'c') ? 'drop-shadow-[0_0_12px_rgba(0,212,255,0.7)]' : 'drop-shadow-[0_0_8px_rgba(0,212,255,0.5)]'}`}>
             Online <span className={`text-accentCyan font-semibold ${(currentLang === 'cpp' || currentLang === 'c') ? 'drop-shadow-[0_0_15px_rgba(0,212,255,1)]' : 'drop-shadow-[0_0_10px_rgba(0,212,255,0.8)]'}`}>{LANGUAGES.find(l => l.id === currentLang)?.name}</span> {LANGUAGES.find(l => l.id === currentLang)?.compiler}
           </p>
         </div>
 
-        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 px-3 py-1.5 rounded-full glass-panel border border-white/10">
-          <div className={`w-2 h-2 rounded-full ${
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 rounded-full glass-panel border border-white/10">
+          <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${
             backendStatus === 'online' ? 'bg-green-500 animate-pulse' : 'bg-red-500'
           }`} />
-          <span className="text-xs text-textSecondary">
-            {backendStatus === 'online' ? 'Backend Online' : 'Backend Offline'}
+          <span className="text-[10px] md:text-xs text-textSecondary">
+            {backendStatus === 'online' ? 'Online' : 'Offline'}
           </span>
         </div>
       </header>
@@ -335,13 +337,18 @@ function App() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setMobileView('code')}
-                className="md:hidden flex items-center p-1.5 rounded hover:bg-white/10 text-textSecondary hover:text-white transition-colors"
+                className={`md:hidden flex items-center p-1.5 rounded transition-colors ${
+                  !isRunning && output 
+                    ? 'bg-accentCyan/20 text-accentCyan shadow-[0_0_10px_rgba(0,212,255,0.5)]' 
+                    : 'hover:bg-white/10 text-textSecondary hover:text-white'
+                }`}
                 title="Back to Code"
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
               <Terminal className="w-5 h-5 text-accentCyan hidden md:block" />
-              <h2 className="font-semibold text-sm uppercase tracking-wide">Terminal</h2>
+              <h2 className="font-semibold text-sm uppercase tracking-wide hidden md:block">Terminal</h2>
+              <h2 className="md:hidden font-semibold text-sm uppercase tracking-wide text-cyan-400 drop-shadow-[0_0_8px_rgba(0,212,255,0.8)]">Output Terminal</h2>
             </div>
             <div className="flex items-center gap-2">
               {executionTime && (
