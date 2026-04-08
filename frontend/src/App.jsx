@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Editor from '@monaco-editor/react'
-import { Play, Trash2, ChevronLeft, ChevronRight, Code2, Loader2, Terminal, Zap, RotateCcw, AlertTriangle } from 'lucide-react'
+import { Play, Trash2, ChevronLeft, ChevronRight, Code2, Loader2, Terminal, Zap, RotateCcw, AlertTriangle, FileOutput, FileInput } from 'lucide-react'
 import { io } from 'socket.io-client'
 
 // API and Socket Base URL - empty string uses the current host (proxy in dev)
@@ -11,11 +11,11 @@ const socket = io(BASE_URL || window.location.origin, {
 });
 
 const LANGUAGES = [
-  { id: 'python', name: 'Python', icon: '🐍', compiler: 'Interpreter', color: '#3776ab' },
-  { id: 'cpp', name: 'C++', icon: '⚙️', compiler: 'Compiler', color: '#00599c' },
-  { id: 'javascript', name: 'JavaScript', icon: 'JS', compiler: 'Interpreter', color: '#f7df1e' },
-  { id: 'java', name: 'Java', icon: '☕', compiler: 'Compiler', color: '#007396' },
-  { id: 'c', name: 'C', icon: '🔧', compiler: 'Compiler', color: '#a8b9cc' }
+  { id: 'python', name: 'Python', icon: '🐍', compiler: 'Interpreter', color: '#3776ab', glow: '#3776ab' },
+  { id: 'cpp', name: 'C++', icon: '⚙️', compiler: 'Compiler', color: '#00599c', glow: '#00d4ff' },
+  { id: 'javascript', name: 'JavaScript', icon: 'JS', compiler: 'Interpreter', color: '#f7df1e', glow: '#f7df1e' },
+  { id: 'java', name: 'Java', icon: '☕', compiler: 'Compiler', color: '#007396', glow: '#007396' },
+  { id: 'c', name: 'C', icon: '🔧', compiler: 'Compiler', color: '#a8b9cc', glow: '#00d4ff' }
 ]
 
 const DEFAULT_CODE = {
@@ -44,6 +44,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [executionTime, setExecutionTime] = useState(null)
   const [backendStatus, setBackendStatus] = useState('connecting')
+  const [activeTab, setActiveTab] = useState('output')
   const editorRef = useRef(null)
   const outputEndRef = useRef(null)
   const consoleRef = useRef(null)
@@ -63,6 +64,7 @@ function App() {
       setExecutionTime(time);
       setOutput(prev => prev + message);
       setIsRunning(false);
+      setActiveTab('input');
     });
 
     return () => {
@@ -102,6 +104,7 @@ function App() {
     if (isRunning) {
       socket.emit('stop');
       setIsRunning(false);
+      setActiveTab('input');
       return;
     }
 
@@ -109,6 +112,7 @@ function App() {
     setOutput('');
     setExecutionTime(null);
     setUserInput('');
+    setActiveTab('output');
     socket.emit('run', { code, language: currentLang });
     if (consoleRef.current) consoleRef.current.focus();
   }
@@ -180,8 +184,8 @@ function App() {
           <h1 className="font-orbitron text-6xl font-black gws-gradient-text tracking-wider animate-glow">
             GWS
           </h1>
-          <p className="mt-2 font-inter text-white/80 text-lg tracking-wide drop-shadow-[0_0_8px_rgba(0,212,255,0.5)]">
-            Online <span className="text-accentCyan font-semibold drop-shadow-[0_0_10px_rgba(0,212,255,0.8)]">{LANGUAGES.find(l => l.id === currentLang)?.name}</span> {LANGUAGES.find(l => l.id === currentLang)?.compiler}
+          <p className={`mt-2 font-inter text-white/80 text-lg tracking-wide ${(currentLang === 'cpp' || currentLang === 'c') ? 'drop-shadow-[0_0_12px_rgba(0,212,255,0.7)]' : 'drop-shadow-[0_0_8px_rgba(0,212,255,0.5)]'}`}>
+            Online <span className={`text-accentCyan font-semibold ${(currentLang === 'cpp' || currentLang === 'c') ? 'drop-shadow-[0_0_15px_rgba(0,212,255,1)]' : 'drop-shadow-[0_0_10px_rgba(0,212,255,0.8)]'}`}>{LANGUAGES.find(l => l.id === currentLang)?.name}</span> {LANGUAGES.find(l => l.id === currentLang)?.compiler}
           </p>
         </div>
 
@@ -221,6 +225,7 @@ function App() {
                       : 'bg-white/5 border border-transparent hover:bg-white/10'
                     }
                   `}
+                  style={currentLang === lang.id && (lang.id === 'cpp' || lang.id === 'c') ? { boxShadow: `0 0 20px ${lang.glow}40` } : {}}
                 >
                   <span 
                     className="text-xl w-8 h-8 flex items-center justify-center rounded"
@@ -318,24 +323,38 @@ function App() {
           </div>
         </section>
 
-        {/* Output Panel */}
+        {/* Output/Input Panel with Tabs */}
         <aside className="w-96 flex-shrink-0 flex flex-col glass-panel border-l border-white/10">
-          {/* Terminal Header */}
-          <div className="flex-shrink-0 flex items-center justify-between p-3 border-b border-white/5 bg-white/5">
+          {/* Tab Header */}
+          <div className="flex-shrink-0 flex items-center justify-between p-2 border-b border-white/5 bg-white/5">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setActiveTab('output')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === 'output' 
+                    ? 'bg-accentCyan/20 text-accentCyan border border-accentCyan/30' 
+                    : 'text-textSecondary hover:bg-white/10'
+                }`}
+              >
+                <FileOutput className="w-4 h-4" />
+                <span>Output</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('input')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === 'input' 
+                    ? 'bg-accentCyan/20 text-accentCyan border border-accentCyan/30' 
+                    : 'text-textSecondary hover:bg-white/10'
+                }`}
+              >
+                <FileInput className="w-4 h-4" />
+                <span>Input</span>
+              </button>
+            </div>
             <div className="flex items-center gap-2">
-              <Terminal className="w-5 h-5 text-accentCyan" />
-              <h2 className="font-semibold text-sm uppercase tracking-wide">Terminal</h2>
               {executionTime && (
                 <span className="text-xs text-textSecondary bg-white/10 px-2 py-0.5 rounded">
                   {executionTime}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {isRunning && (
-                <span className="flex items-center gap-1.5 px-2 py-0.5 bg-accentCyan/10 text-accentCyan text-[10px] uppercase font-bold rounded animate-pulse">
-                  <div className="w-1.5 h-1.5 rounded-full bg-accentCyan"></div>
-                  Input Ready
                 </span>
               )}
               <button
@@ -348,38 +367,53 @@ function App() {
             </div>
           </div>
 
-          {/* Interactive Console */}
-          <div 
-            ref={consoleRef}
-            tabIndex={0}
-            onKeyDown={handleConsoleKeyDown}
-            onFocus={() => setIsConsoleFocused(true)}
-            onBlur={() => setIsConsoleFocused(false)}
-            className="flex-1 overflow-auto p-4 bg-primary/80 font-mono text-sm outline-none cursor-text custom-scrollbar group"
-          >
-            <div className="whitespace-pre-wrap break-words">
-              {output}
-              {isRunning && (
-                <span className="inline-block">
-                  <span className="text-accentCyan">{userInput}</span>
-                  {isConsoleFocused && (
-                    <span className="inline-block w-2 h-4 ml-0.5 bg-accentCyan animate-pulse align-middle"></span>
-                  )}
-                </span>
-              )}
-              {!output && !isRunning && (
-                <div className="h-full flex flex-col items-center justify-center text-textSecondary/30 mt-20 select-none">
-                  <Code2 className="w-16 h-16 mb-4 opacity-10" />
-                  <p className="text-sm font-sans tracking-widest uppercase">Ready for Input</p>
+          {/* Tab Content */}
+          <div className="flex-1 overflow-hidden">
+            {/* Output View */}
+            {activeTab === 'output' && (
+              <div className="h-full overflow-auto p-4 bg-primary/80 font-mono text-sm custom-scrollbar">
+                <div className="whitespace-pre-wrap break-words">
+                  {output || (isRunning ? '' : 'Run your code to see output here...')}
+                  <div ref={outputEndRef} />
                 </div>
-              )}
-              <div ref={outputEndRef} />
-            </div>
+              </div>
+            )}
+
+            {/* Input View */}
+            {activeTab === 'input' && (
+              <div 
+                ref={consoleRef}
+                tabIndex={0}
+                onKeyDown={handleConsoleKeyDown}
+                onFocus={() => setIsConsoleFocused(true)}
+                onBlur={() => setIsConsoleFocused(false)}
+                className="h-full overflow-auto p-4 bg-primary/80 font-mono text-sm outline-none cursor-text custom-scrollbar group"
+              >
+                <div className="whitespace-pre-wrap break-words">
+                  {output}
+                  {isRunning && (
+                    <span className="inline-block">
+                      <span className="text-accentCyan">{userInput}</span>
+                      {isConsoleFocused && (
+                        <span className="inline-block w-2 h-4 ml-0.5 bg-accentCyan animate-pulse align-middle"></span>
+                      )}
+                    </span>
+                  )}
+                  {!output && !isRunning && (
+                    <div className="h-full flex flex-col items-center justify-center text-textSecondary/30 mt-20 select-none">
+                      <Code2 className="w-16 h-16 mb-4 opacity-10" />
+                      <p className="text-sm font-sans tracking-widest uppercase">Ready for Input</p>
+                    </div>
+                  )}
+                  <div ref={outputEndRef} />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="p-2 border-t border-white/5 bg-black/20">
             <p className="text-[10px] text-textSecondary/50 text-center uppercase tracking-tighter">
-              {isRunning ? 'Click here to type input and press ENTER' : 'Output will appear here'}
+              {activeTab === 'input' && isRunning ? 'Type input and press ENTER' : 'Output will appear here'}
             </p>
           </div>
         </aside>

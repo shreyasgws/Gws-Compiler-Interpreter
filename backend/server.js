@@ -1,6 +1,15 @@
 import express from 'express';
 import cors from 'cors';
-import { spawn, spawnSync } from 'child_process';
+import { spawn as _spawn, spawnSync } from 'child_process';
+
+const spawn = (command, args, options = {}) => {
+  const isWin = os.platform() === 'win32';
+  if (!isWin && options && options.shell) {
+    const limits = 'ulimit -t 20; ulimit -u 64; ulimit -f 5120; ulimit -v 1048576; ';
+    command = `${limits} ${command}`;
+  }
+  return _spawn(command, args, options);
+};
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -281,7 +290,7 @@ function executeLocal(code, language, stdin = '') {
           
           const javac = findExecutable('javac');
           // Compile from userDir root to ensure package paths are handled correctly
-          proc = spawn(javac, [relativeSrcPath], { cwd: userDir });
+          proc = spawn(`"${javac}"`, [relativeSrcPath], { cwd: userDir, shell: true });
           
           proc.stderr.on('data', (data) => { error += data.toString(); });
           proc.on('error', (err) => { 
@@ -311,7 +320,7 @@ function executeLocal(code, language, stdin = '') {
             const java = findExecutable('java');
             const fullClassName = packageName ? `${packageName}.${className}` : className;
             // Use -cp . to specify the root of the class files
-            const runProc = spawn(java, ['-cp', '.', fullClassName], { cwd: userDir });
+            const runProc = spawn(`"${java}"`, ['-cp', '.', fullClassName], { cwd: userDir, shell: true });
             handleStdin(runProc);
             
             runProc.stdout.on('data', (data) => { output += data.toString(); });
@@ -536,14 +545,14 @@ io.on('connection', (socket) => {
           
           fs.writeFileSync(path.join(userDir, relativeSrcPath), code);
           const javac = findExecutable('javac');
-          const compileProc = spawn(javac, [relativeSrcPath], { cwd: userDir });
+          const compileProc = spawn(`"${javac}"`, [relativeSrcPath], { cwd: userDir, shell: true });
           
           compileProc.stderr.on('data', (data) => socket.emit('output', data.toString()));
           compileProc.on('close', (cCode) => {
             if (cCode === 0) {
               const java = findExecutable('java');
               const fullClassName = packageName ? `${packageName}.${className}` : className;
-              startProcess(java, ['-cp', '.', fullClassName], { cwd: userDir });
+              startProcess(`"${java}"`, ['-cp', '.', fullClassName], { cwd: userDir });
             } else {
               socket.emit('exit', { code: cCode, message: '\n\n=== Compilation Failed ===' });
             }
