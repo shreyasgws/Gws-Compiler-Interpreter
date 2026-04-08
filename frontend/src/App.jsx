@@ -163,7 +163,7 @@ function App() {
             text-textPrimary font-medium text-[8px]
             transition-all duration-300
             hover:bg-accentCyan/20 hover:border-accentCyan/50
-            md:static md:flex-row md:px-5 md:py-3 md:text-sm md:translate-y-0 md:ml-0 md:gap-2
+            md:absolute md:left-0 md:flex-row md:px-5 md:py-3 md:text-sm md:translate-y-0 md:ml-0 md:gap-2
             ${!sidebarOpen ? 'md:translate-x-0' : ''}
           `}
         >
