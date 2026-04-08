@@ -154,9 +154,11 @@ function executeLocal(code, language, stdin = '') {
         }
 
         case 'cpp': {
+          let processedCode = "#include <stdio.h>\n" + code;
+          processedCode = processedCode.replace(/(int\s+main\s*\([^)]*\)\s*\{)/, "$1\n    setvbuf(stdout, NULL, _IONBF, 0);\n    setvbuf(stderr, NULL, _IONBF, 0);\n");
           const srcPath = path.join(userDir, `solution.cpp`);
           const exePath = path.join(userDir, `solution.exe`);
-          fs.writeFileSync(srcPath, code);
+          fs.writeFileSync(srcPath, processedCode);
           
           const gpp = findExecutable('g++');
           proc = spawn(`"${gpp}"`, [`"${srcPath}"`, '-o', `"${exePath}"`], { shell: true });
@@ -198,9 +200,11 @@ function executeLocal(code, language, stdin = '') {
         }
 
         case 'c': {
+          let processedCode = "#include <stdio.h>\n" + code;
+          processedCode = processedCode.replace(/(int\s+main\s*\([^)]*\)\s*\{)/, "$1\n    setvbuf(stdout, NULL, _IONBF, 0);\n    setvbuf(stderr, NULL, _IONBF, 0);\n");
           const srcPath = path.join(userDir, `solution.c`);
           const exePath = path.join(userDir, `solution.exe`);
-          fs.writeFileSync(srcPath, code);
+          fs.writeFileSync(srcPath, processedCode);
           
           const gcc = findExecutable('gcc');
           proc = spawn(`"${gcc}"`, [`"${srcPath}"`, '-o', `"${exePath}"`], { shell: true });
@@ -480,9 +484,11 @@ io.on('connection', (socket) => {
           break;
         }
         case 'cpp': {
+          let processedCode = "#include <stdio.h>\n" + code;
+          processedCode = processedCode.replace(/(int\s+main\s*\([^)]*\)\s*\{)/, "$1\n    setvbuf(stdout, NULL, _IONBF, 0);\n    setvbuf(stderr, NULL, _IONBF, 0);\n");
           const srcPath = path.join(userDir, `solution.cpp`);
           const exePath = path.join(userDir, `solution.exe`);
-          fs.writeFileSync(srcPath, code);
+          fs.writeFileSync(srcPath, processedCode);
           const gpp = findExecutable('g++');
           const compileProc = spawn(`"${gpp}"`, [`"${srcPath}"`, '-o', `"${exePath}"`], { shell: true });
           
@@ -494,9 +500,11 @@ io.on('connection', (socket) => {
           break;
         }
         case 'c': {
+          let processedCode = "#include <stdio.h>\n" + code;
+          processedCode = processedCode.replace(/(int\s+main\s*\([^)]*\)\s*\{)/, "$1\n    setvbuf(stdout, NULL, _IONBF, 0);\n    setvbuf(stderr, NULL, _IONBF, 0);\n");
           const srcPath = path.join(userDir, `solution.c`);
           const exePath = path.join(userDir, `solution.exe`);
-          fs.writeFileSync(srcPath, code);
+          fs.writeFileSync(srcPath, processedCode);
           const gcc = findExecutable('gcc');
           const compileProc = spawn(`"${gcc}"`, [`"${srcPath}"`, '-o', `"${exePath}"`], { shell: true });
           
