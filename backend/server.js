@@ -4,6 +4,8 @@ import { spawn, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import http from 'http';
+import { Server } from 'socket.io';
 
 // Cache for compiler paths
 const COMPILER_PATHS = {
@@ -401,9 +403,163 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', mode: RAPID_API_KEY ? 'rapidapi' : 'local' });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+// Store active processes per socket
+const activeProcesses = new Map();
+
+io.on('connection', (socket) => {
+  console.log('Client connected for interactive terminal');
+
+  socket.on('run', async ({ code, language }) => {
+    const rootTmpDir = os.tmpdir();
+    const userDir = fs.mkdtempSync(path.join(rootTmpDir, `gws-socket-${Date.now()}-`));
+    const startTime = Date.now();
+    let proc = null;
+
+    const cleanup = () => {
+      if (proc) proc.kill();
+      activeProcesses.delete(socket.id);
+      try {
+        fs.rmSync(userDir, { recursive: true, force: true });
+      } catch (err) {}
+    };
+
+    socket.on('disconnect', cleanup);
+    socket.on('stop', cleanup);
+
+    try {
+      const isWin = os.platform() === 'win32';
+      
+      const startProcess = (cmd, args, options = {}) => {
+        proc = spawn(cmd, args, { ...options, shell: true });
+        activeProcesses.set(socket.id, proc);
+
+        proc.stdout.on('data', (data) => {
+          socket.emit('output', data.toString());
+        });
+
+        proc.stderr.on('data', (data) => {
+          socket.emit('output', data.toString());
+        });
+
+        proc.on('close', (exitCode) => {
+          const duration = ((Date.now() - startTime) / 1000).toFixed(3);
+          socket.emit('exit', {
+            code: exitCode,
+            time: `${duration}s`,
+            message: `\n\n=== Code Execution ${exitCode === 0 ? 'Successful' : 'Failed'} ===`
+          });
+          cleanup();
+        });
+
+        proc.on('error', (err) => {
+          socket.emit('output', `\nError: ${err.message}`);
+          cleanup();
+        });
+      };
+
+      switch (language) {
+        case 'python': {
+          const filePath = path.join(userDir, `script.py`);
+          fs.writeFileSync(filePath, code);
+          const pyCmd = findExecutable('python3') || findExecutable('python');
+          startProcess(isWin ? pyCmd : `"${pyCmd}"`, [`"${filePath}"`]);
+          break;
+        }
+        case 'javascript': {
+          const filePath = path.join(userDir, `script.js`);
+          fs.writeFileSync(filePath, code);
+          startProcess('node', [`"${filePath}"`]);
+          break;
+        }
+        case 'cpp': {
+          const srcPath = path.join(userDir, `solution.cpp`);
+          const exePath = path.join(userDir, `solution.exe`);
+          fs.writeFileSync(srcPath, code);
+          const gpp = findExecutable('g++');
+          const compileProc = spawn(`"${gpp}"`, [`"${srcPath}"`, '-o', `"${exePath}"`], { shell: true });
+          
+          compileProc.stderr.on('data', (data) => socket.emit('output', data.toString()));
+          compileProc.on('close', (cCode) => {
+            if (cCode === 0) startProcess(`"${exePath}"`, []);
+            else socket.emit('exit', { code: cCode, message: '\n\n=== Compilation Failed ===' });
+          });
+          break;
+        }
+        case 'c': {
+          const srcPath = path.join(userDir, `solution.c`);
+          const exePath = path.join(userDir, `solution.exe`);
+          fs.writeFileSync(srcPath, code);
+          const gcc = findExecutable('gcc');
+          const compileProc = spawn(`"${gcc}"`, [`"${srcPath}"`, '-o', `"${exePath}"`], { shell: true });
+          
+          compileProc.stderr.on('data', (data) => socket.emit('output', data.toString()));
+          compileProc.on('close', (cCode) => {
+            if (cCode === 0) startProcess(`"${exePath}"`, []);
+            else socket.emit('exit', { code: cCode, message: '\n\n=== Compilation Failed ===' });
+          });
+          break;
+        }
+        case 'java': {
+          const packageMatch = code.match(/^\s*package\s+([\w.]+);/m);
+          const packageName = packageMatch ? packageMatch[1] : null;
+          const publicClassMatch = code.match(/public\s+(?:final\s+|abstract\s+)?(?:class|interface|enum|record)\s+(\w+)/);
+          const anyClassMatch = code.match(/(?:public\s+)?(?:class|interface|enum|record)\s+(\w+)/);
+          const className = (publicClassMatch && publicClassMatch[1]) || (anyClassMatch && anyClassMatch[1]);
+
+          if (!className) {
+            socket.emit('output', 'No class name found.');
+            return;
+          }
+
+          let relativeSrcPath = `${className}.java`;
+          if (packageName) {
+            const packagePath = packageName.replace(/\./g, path.sep);
+            fs.mkdirSync(path.join(userDir, packagePath), { recursive: true });
+            relativeSrcPath = path.join(packagePath, `${className}.java`);
+          }
+          
+          fs.writeFileSync(path.join(userDir, relativeSrcPath), code);
+          const javac = findExecutable('javac');
+          const compileProc = spawn(javac, [relativeSrcPath], { cwd: userDir });
+          
+          compileProc.stderr.on('data', (data) => socket.emit('output', data.toString()));
+          compileProc.on('close', (cCode) => {
+            if (cCode === 0) {
+              const java = findExecutable('java');
+              const fullClassName = packageName ? `${packageName}.${className}` : className;
+              startProcess(java, ['-cp', '.', fullClassName], { cwd: userDir });
+            } else {
+              socket.emit('exit', { code: cCode, message: '\n\n=== Compilation Failed ===' });
+            }
+          });
+          break;
+        }
+      }
+    } catch (err) {
+      socket.emit('output', `System Error: ${err.message}`);
+    }
+  });
+
+  socket.on('stdin', (data) => {
+    const proc = activeProcesses.get(socket.id);
+    if (proc && proc.stdin) {
+      proc.stdin.write(data);
+    }
+  });
+});
+
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`GWS Compiler Backend running on port ${PORT}`);
   console.log(`Execution mode: ${RAPID_API_KEY ? 'RapidAPI' : 'Local'}`);
+  console.log(`WebSockets enabled`);
 });
 
 export default app;

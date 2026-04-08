@@ -1,80 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Editor from '@monaco-editor/react'
-import { Play, Trash2, ChevronLeft, ChevronRight, Code2, Loader2, Terminal, Zap, RotateCcw } from 'lucide-react'
+import { Play, Trash2, ChevronLeft, ChevronRight, Code2, Loader2, Terminal, Zap, RotateCcw, AlertTriangle } from 'lucide-react'
+import { io } from 'socket.io-client'
 
-
-const executeCodeLocally = async (code, language, stdin = '') => {
-  const startTime = performance.now();
-
-  if (language === 'javascript') {
-    try {
-      let output = '';
-      const logs = [];
-      const mockConsole = {
-        log: (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')),
-        error: (...args) => logs.push('Error: ' + args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')),
-        warn: (...args) => logs.push('Warning: ' + args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')),
-        info: (...args) => logs.push('Info: ' + args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')),
-        debug: (...args) => logs.push('Debug: ' + args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')),
-        table: (data) => logs.push(JSON.stringify(data, null, 2)),
-        clear: () => logs.length = 0,
-        time: () => {},
-        timeEnd: () => {},
-        assert: (cond, ...args) => { if (!cond) logs.push('Assertion failed: ' + args.join(' ')); }
-      };
-
-      const fn = new Function('console', code);
-      fn(mockConsole);
-
-      output = logs.join('\n');
-      const time = ((performance.now() - startTime) / 1000).toFixed(3) + 's';
-
-      return { output: output || '(No output)', error: null, time, status: 'Success' };
-    } catch (err) {
-      const time = ((performance.now() - startTime) / 1000).toFixed(3) + 's';
-      return { output: '', error: err.message, time, status: 'Runtime Error' };
-    }
-  }
-
-  // API Base URL - empty string uses the current host (proxy in dev)
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
-
-  // All other languages use the backend
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, language, stdin }),
-      signal: AbortSignal.timeout(30000) // Increased timeout for compilation
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to execute code');
-    }
-    
-    const result = await response.json();
-    return result;
-  } catch (err) {
-    let errorMessage = err.message;
-    let status = 'Error';
-    
-    if (err.name === 'TimeoutError') {
-      errorMessage = 'Execution timed out. The backend might be busy or the code is taking too long.';
-      status = 'Timeout';
-    } else if (errorMessage.includes('Failed to fetch')) {
-      errorMessage = 'Backend server not running.\n\nTo start the backend:\n1. Open a new terminal\n2. Run: cd backend && npm run dev\n3. Ensure port 3001 is open';
-      status = 'Backend Offline';
-    }
-    
-    return {
-      output: '',
-      error: errorMessage,
-      time: '0s',
-      status: status
-    };
-  }
-};
+// API and Socket Base URL - empty string uses the current host (proxy in dev)
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const socket = io(BASE_URL || window.location.origin, {
+  autoConnect: false,
+  reconnection: true
+});
 
 const LANGUAGES = [
   { id: 'python', name: 'Python', icon: '🐍', compiler: 'Interpreter', color: '#3776ab' },
@@ -103,44 +37,48 @@ const MONACO_LANGUAGE = {
 function App() {
   const [currentLang, setCurrentLang] = useState('python')
   const [code, setCode] = useState(DEFAULT_CODE.python)
-  const [stdin, setStdin] = useState('')
   const [output, setOutput] = useState('')
+  const [userInput, setUserInput] = useState('') // Current line being typed
   const [isRunning, setIsRunning] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [executionTime, setExecutionTime] = useState(null)
   const [backendStatus, setBackendStatus] = useState('connecting')
   const editorRef = useRef(null)
-
-  const currentLanguage = LANGUAGES.find(l => l.id === currentLang)
+  const outputEndRef = useRef(null)
+  const consoleRef = useRef(null)
 
   useEffect(() => {
-    const checkBackend = async () => {
-      try {
-        const response = await fetch('/api/health', { 
-          method: 'GET',
-          signal: AbortSignal.timeout(3000)
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.status === 'ok') {
-            setBackendStatus('connected');
-            return;
-          }
-        }
-        setBackendStatus('disconnected');
-      } catch (err) {
-        setBackendStatus('disconnected');
-      }
+    socket.connect();
+
+    socket.on('connect', () => setBackendStatus('online'));
+    socket.on('connect_error', () => setBackendStatus('offline'));
+    socket.on('disconnect', () => setBackendStatus('offline'));
+
+    socket.on('output', (data) => {
+      setOutput(prev => prev + data);
+    });
+
+    socket.on('exit', ({ time, message }) => {
+      setExecutionTime(time);
+      setOutput(prev => prev + message);
+      setIsRunning(false);
+    });
+
+    return () => {
+      socket.off('connect');
+      socket.off('connect_error');
+      socket.off('disconnect');
+      socket.off('output');
+      socket.off('exit');
+      socket.disconnect();
     };
-    
-    // Initial check
-    checkBackend();
-    
-    const interval = setInterval(checkBackend, 10000);
-    return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (outputEndRef.current) {
+      outputEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [output, userInput]);
 
   useEffect(() => {
     const savedCode = localStorage.getItem(`gws_code_${currentLang}`)
@@ -159,31 +97,40 @@ function App() {
     editorRef.current = editor
   }
 
-  const runCode = useCallback(async () => {
-    setIsRunning(true)
-    setOutput('')
-    setExecutionTime(null)
-
-    const result = await executeCodeLocally(code, currentLang, stdin)
-
-    if (result.error) {
-      setOutput(`❌ ${result.status}:\n${result.error}`)
-    } else {
-      const outputText = result.output || '(No output)'
-      setOutput(`✅ ${result.status}:\n${outputText}`)
+  const runCode = () => {
+    if (isRunning) {
+      socket.emit('stop');
+      setIsRunning(false);
+      return;
     }
 
-    if (result.time) {
-      setExecutionTime(result.time)
-    }
+    setIsRunning(true);
+    setOutput('');
+    setExecutionTime(null);
+    setUserInput('');
+    socket.emit('run', { code, language: currentLang });
+    if (consoleRef.current) consoleRef.current.focus();
+  }
 
-    setIsRunning(false)
-  }, [code, currentLang])
+  const handleConsoleKeyDown = (e) => {
+    if (!isRunning) return;
+
+    if (e.key === 'Enter') {
+      const input = userInput + '\n';
+      setOutput(prev => prev + userInput + '\n');
+      socket.emit('stdin', input);
+      setUserInput('');
+    } else if (e.key === 'Backspace') {
+      setUserInput(prev => prev.slice(0, -1));
+    } else if (e.key.length === 1) {
+      setUserInput(prev => prev + e.key);
+    }
+  }
 
   const clearOutput = () => {
     setOutput('')
     setExecutionTime(null)
-    setStdin('')
+    setUserInput('')
   }
 
   const resetCode = () => {
@@ -193,8 +140,6 @@ function App() {
     setExecutionTime(null)
   }
 
-
-
   const handleLanguageChange = (langId) => {
     setCurrentLang(langId)
     setSidebarOpen(false)
@@ -202,26 +147,10 @@ function App() {
     setExecutionTime(null)
   }
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.ctrlKey && e.key === 'Enter') {
-        e.preventDefault()
-        runCode()
-      }
-      if (e.ctrlKey && e.key === 's') {
-        e.preventDefault()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [runCode])
-
   return (
     <div className="h-screen w-screen flex flex-col bg-primary overflow-hidden">
       {/* Header */}
       <header className="relative flex-shrink-0 h-32 flex items-center justify-center bg-gradient-to-b from-secondary to-primary border-b border-white/5">
-        {/* Sidebar Toggle Button - Left Corner */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className={`
@@ -246,32 +175,26 @@ function App() {
           )}
         </button>
 
-        {/* GWS Branding */}
         <div className="flex flex-col items-center">
           <h1 className="font-orbitron text-6xl font-black gws-gradient-text tracking-wider animate-glow">
             GWS
           </h1>
           <p className="mt-2 font-inter text-textSecondary text-lg tracking-wide">
-            Online <span className="text-accentCyan font-semibold">{currentLanguage?.name}</span> {currentLanguage?.compiler}
+            Online <span className="text-accentCyan font-semibold">{LANGUAGES.find(l => l.id === currentLang)?.name}</span> {LANGUAGES.find(l => l.id === currentLang)?.compiler}
           </p>
         </div>
 
-        {/* Backend Status */}
         <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 px-3 py-1.5 rounded-full glass-panel border border-white/10">
           <div className={`w-2 h-2 rounded-full ${
-            backendStatus === 'connected' ? 'bg-green-500 animate-pulse' :
-            backendStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'
+            backendStatus === 'online' ? 'bg-green-500 animate-pulse' : 'bg-red-500'
           }`} />
           <span className="text-xs text-textSecondary">
-            {backendStatus === 'connected' ? 'Backend Connected' :
-             backendStatus === 'connecting' ? 'Connecting...' : 'Backend Offline'}
+            {backendStatus === 'online' ? 'Backend Online' : 'Backend Offline'}
           </span>
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 flex overflow-hidden">
-        {/* Language Sidebar */}
         <aside
           className={`
             absolute left-0 top-32 h-[calc(100%-8rem)] w-72 z-10
@@ -304,10 +227,8 @@ function App() {
                   >
                     {lang.icon === 'JS' ? (
                       <span className="font-bold text-sm" style={{ color: lang.color }}>JS</span>
-                    ) : lang.icon === '☕' ? (
-                      <span className="text-lg">☕</span>
                     ) : (
-                      <span className="text-lg">🔧</span>
+                      <span className="text-lg">{lang.icon}</span>
                     )}
                   </span>
                   <div className="flex-1 text-left">
@@ -316,36 +237,38 @@ function App() {
                     </p>
                     <p className="text-xs text-textSecondary">{lang.compiler}</p>
                   </div>
-                  {currentLang === lang.id && (
-                    <div className="w-2 h-2 rounded-full bg-accentCyan animate-pulse" />
-                  )}
                 </button>
               ))}
             </div>
           </div>
         </aside>
 
-        {/* Code Editor Panel */}
         <section className="flex-1 flex flex-col min-w-0">
-          {/* Run Button */}
           <div className="flex-shrink-0 p-3 bg-secondary/50 border-b border-white/5">
             <div className="flex items-center gap-3">
-              <button
+              <button 
                 onClick={runCode}
-                disabled={isRunning}
-                className="
-                  glow-button flex items-center gap-2 px-6 py-3 rounded-lg
-                  bg-gradient-to-r from-green-500 to-emerald-600
-                  text-white font-semibold text-sm uppercase tracking-wide
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                "
+                disabled={backendStatus === 'offline'}
+                className={`
+                  flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all duration-300 transform active:scale-95 shadow-lg
+                  ${isRunning 
+                    ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' 
+                    : 'bg-gradient-to-r from-accentCyan to-blue-500 hover:shadow-accentCyan/20 text-primary'
+                  }
+                  ${backendStatus === 'offline' ? 'opacity-50 cursor-not-allowed' : ''}
+                `}
               >
                 {isRunning ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <>
+                    <RotateCcw className="w-5 h-5 animate-spin-reverse" />
+                    <span>Stop</span>
+                  </>
                 ) : (
-                  <Play className="w-5 h-5" />
+                  <>
+                    <Play className="w-5 h-5" />
+                    <span>Run Code</span>
+                  </>
                 )}
-                {isRunning ? 'Running...' : 'Run Code'}
               </button>
               
               <button
@@ -396,61 +319,63 @@ function App() {
 
         {/* Output Panel */}
         <aside className="w-96 flex-shrink-0 flex flex-col glass-panel border-l border-white/10">
-          {/* Input Section */}
-          <div className="flex-shrink-0 flex items-center justify-between p-3 border-b border-white/5">
-            <div className="flex items-center gap-2">
-              <Zap className="w-5 h-5 text-accentCyan" />
-              <h2 className="font-semibold text-sm uppercase tracking-wide">Input</h2>
-            </div>
-          </div>
-          <div className="h-48 flex-shrink-0 relative">
-            <textarea
-              value={stdin}
-              onChange={(e) => setStdin(e.target.value)}
-              placeholder="Enter your program input here..."
-              className="w-full h-full bg-primary/30 p-4 font-mono text-sm text-textPrimary outline-none resize-none placeholder:text-textSecondary/50"
-            />
-          </div>
-
-          {/* Output Header */}
-          <div className="flex-shrink-0 flex items-center justify-between p-3 border-y border-white/5 bg-white/5">
+          {/* Terminal Header */}
+          <div className="flex-shrink-0 flex items-center justify-between p-3 border-b border-white/5 bg-white/5">
             <div className="flex items-center gap-2">
               <Terminal className="w-5 h-5 text-accentCyan" />
-              <h2 className="font-semibold text-sm uppercase tracking-wide">Output</h2>
+              <h2 className="font-semibold text-sm uppercase tracking-wide">Terminal</h2>
               {executionTime && (
                 <span className="text-xs text-textSecondary bg-white/10 px-2 py-0.5 rounded">
                   {executionTime}
                 </span>
               )}
             </div>
-            <button
-              onClick={clearOutput}
-              className="
-                p-2 rounded-lg transition-all duration-200
-                hover:bg-white/10 hover:text-accentCyan
-                text-textSecondary
-              "
-              title="Clear All"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              {isRunning && (
+                <span className="flex items-center gap-1.5 px-2 py-0.5 bg-accentCyan/10 text-accentCyan text-[10px] uppercase font-bold rounded animate-pulse">
+                  <div className="w-1.5 h-1.5 rounded-full bg-accentCyan"></div>
+                  Input Ready
+                </span>
+              )}
+              <button
+                onClick={clearOutput}
+                className="p-1.5 rounded hover:bg-white/10 text-textSecondary hover:text-accentCyan transition-colors"
+                title="Clear Terminal"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
-          {/* Output Content */}
-          <div className="flex-1 overflow-auto p-4 bg-primary/50">
-            {output ? (
-              <pre className={`
-                font-mono text-sm whitespace-pre-wrap break-words
-                ${output.includes('Error') || output.includes('Timed out') ? 'text-error' : 'text-success'}
-              `}>
-                {output}
-              </pre>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-textSecondary">
-                <Code2 className="w-12 h-12 mb-3 opacity-30" />
-                <p className="text-sm">Run your code to see output</p>
-              </div>
-            )}
+          {/* Interactive Console */}
+          <div 
+            ref={consoleRef}
+            tabIndex={0}
+            onKeyDown={handleConsoleKeyDown}
+            className="flex-1 overflow-auto p-4 bg-primary/80 font-mono text-sm outline-none cursor-text custom-scrollbar group"
+          >
+            <div className="whitespace-pre-wrap break-words">
+              {output}
+              {isRunning && (
+                <span className="inline-block">
+                  <span className="text-accentCyan">{userInput}</span>
+                  <span className="inline-block w-2 h-4 ml-0.5 bg-accentCyan animate-pulse align-middle"></span>
+                </span>
+              )}
+              {!output && !isRunning && (
+                <div className="h-full flex flex-col items-center justify-center text-textSecondary/30 mt-20 select-none">
+                  <Code2 className="w-16 h-16 mb-4 opacity-10" />
+                  <p className="text-sm font-sans tracking-widest uppercase">Ready for Input</p>
+                </div>
+              )}
+              <div ref={outputEndRef} />
+            </div>
+          </div>
+
+          <div className="p-2 border-t border-white/5 bg-black/20">
+            <p className="text-[10px] text-textSecondary/50 text-center uppercase tracking-tighter">
+              {isRunning ? 'Click here to type input and press ENTER' : 'Output will appear here'}
+            </p>
           </div>
         </aside>
       </main>
