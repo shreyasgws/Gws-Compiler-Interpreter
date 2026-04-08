@@ -175,7 +175,7 @@ function App() {
           ) : (
             <>
               <ChevronRight className="w-3 h-3 text-accentCyan md:w-5 md:h-5" />
-              <span className="md:hidden text-[9px] leading-tight">Languages</span>
+              <span className="md:hidden text-[8px] leading-tight">Other<br/>Languages</span>
               <span className="hidden md:inline">Other Languages</span>
             </>
           )}
