@@ -180,8 +180,8 @@ function App() {
           <h1 className="font-orbitron text-6xl font-black gws-gradient-text tracking-wider animate-glow">
             GWS
           </h1>
-          <p className="mt-2 font-inter text-textSecondary text-lg tracking-wide">
-            Online <span className="text-accentCyan font-semibold">{LANGUAGES.find(l => l.id === currentLang)?.name}</span> {LANGUAGES.find(l => l.id === currentLang)?.compiler}
+          <p className="mt-2 font-inter text-white/80 text-lg tracking-wide drop-shadow-[0_0_8px_rgba(0,212,255,0.5)]">
+            Online <span className="text-accentCyan font-semibold drop-shadow-[0_0_10px_rgba(0,212,255,0.8)]">{LANGUAGES.find(l => l.id === currentLang)?.name}</span> {LANGUAGES.find(l => l.id === currentLang)?.compiler}
           </p>
         </div>
 
@@ -254,7 +254,7 @@ function App() {
                   flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all duration-300 transform active:scale-95 shadow-lg
                   ${isRunning 
                     ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' 
-                    : 'bg-green-600 hover:bg-green-500 hover:shadow-green-400/30 text-white'
+                    : 'bg-green-600 hover:bg-green-500 hover:shadow-[0_0_25px_rgba(74,222,128,0.6)] text-white'
                   }
                   ${backendStatus === 'offline' ? 'opacity-50 cursor-not-allowed' : ''}
                 `}
