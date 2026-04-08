@@ -157,25 +157,25 @@ function App() {
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className={`
-            absolute left-4 top-1/2 -translate-y-1/2 z-20
-            glow-button flex items-center gap-2 px-3 py-2 rounded-lg
+            absolute left-2 top-1/2 -translate-y-1/2 z-20
+            glow-button flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 rounded-lg
             bg-secondary/95 backdrop-blur-sm border border-white/20
-            text-textPrimary font-medium text-xs
+            text-textPrimary font-medium text-[10px]
             transition-all duration-300
             hover:bg-accentCyan/20 hover:border-accentCyan/50
-            md:static md:px-5 md:py-3 md:text-sm md:translate-y-0 md:ml-0
+            md:static md:flex-row md:px-5 md:py-3 md:text-sm md:translate-y-0 md:ml-0 md:gap-2
             ${!sidebarOpen ? 'md:translate-x-0' : ''}
           `}
         >
           {sidebarOpen ? (
             <>
-              <ChevronLeft className="w-4 h-4 text-accentCyan md:w-5 md:h-5" />
+              <ChevronLeft className="w-3 h-3 text-accentCyan md:w-5 md:h-5" />
               <span className="md:hidden">Close</span>
             </>
           ) : (
             <>
-              <ChevronRight className="w-4 h-4 text-accentCyan md:w-5 md:h-5" />
-              <span className="md:hidden">Languages</span>
+              <ChevronRight className="w-3 h-3 text-accentCyan md:w-5 md:h-5" />
+              <span className="md:hidden leading-tight">Other<br/>Languages</span>
             </>
           )}
         </button>
