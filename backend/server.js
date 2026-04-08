@@ -99,8 +99,9 @@ function executeLocal(code, language) {
         case 'python': {
           const filePath = path.join(userDir, `script.py`);
           fs.writeFileSync(filePath, code);
-          // Use double quotes for paths to handle spaces on Windows
-          proc = spawn('python', [`"${filePath}"`], { shell: true });
+          const isWin = os.platform() === 'win32';
+          const pyCmd = findExecutable('python3') || findExecutable('python');
+          proc = spawn(isWin ? pyCmd : `"${pyCmd}"`, [`"${filePath}"`], { shell: true });
           proc.stdout.on('data', (data) => { output += data.toString(); });
           proc.stderr.on('data', (data) => { error += data.toString(); });
           proc.on('error', (err) => { error = `Failed to start Python: ${err.message}`; });
