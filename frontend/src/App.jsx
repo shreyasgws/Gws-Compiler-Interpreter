@@ -40,6 +40,7 @@ function App() {
   const [output, setOutput] = useState('')
   const [userInput, setUserInput] = useState('') // Current line being typed
   const [isRunning, setIsRunning] = useState(false)
+  const [isConsoleFocused, setIsConsoleFocused] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [executionTime, setExecutionTime] = useState(null)
   const [backendStatus, setBackendStatus] = useState('connecting')
@@ -253,7 +254,7 @@ function App() {
                   flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all duration-300 transform active:scale-95 shadow-lg
                   ${isRunning 
                     ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' 
-                    : 'bg-gradient-to-r from-accentCyan to-blue-500 hover:shadow-accentCyan/20 text-primary'
+                    : 'bg-green-600 hover:bg-green-500 hover:shadow-green-400/30 text-white'
                   }
                   ${backendStatus === 'offline' ? 'opacity-50 cursor-not-allowed' : ''}
                 `}
@@ -352,6 +353,8 @@ function App() {
             ref={consoleRef}
             tabIndex={0}
             onKeyDown={handleConsoleKeyDown}
+            onFocus={() => setIsConsoleFocused(true)}
+            onBlur={() => setIsConsoleFocused(false)}
             className="flex-1 overflow-auto p-4 bg-primary/80 font-mono text-sm outline-none cursor-text custom-scrollbar group"
           >
             <div className="whitespace-pre-wrap break-words">
@@ -359,7 +362,9 @@ function App() {
               {isRunning && (
                 <span className="inline-block">
                   <span className="text-accentCyan">{userInput}</span>
-                  <span className="inline-block w-2 h-4 ml-0.5 bg-accentCyan animate-pulse align-middle"></span>
+                  {isConsoleFocused && (
+                    <span className="inline-block w-2 h-4 ml-0.5 bg-accentCyan animate-pulse align-middle"></span>
+                  )}
                 </span>
               )}
               {!output && !isRunning && (
