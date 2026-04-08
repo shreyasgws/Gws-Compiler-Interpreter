@@ -3,7 +3,7 @@ import Editor from '@monaco-editor/react'
 import { Play, Trash2, ChevronLeft, ChevronRight, Code2, Loader2, Terminal, Zap, RotateCcw } from 'lucide-react'
 
 
-const executeCodeLocally = async (code, language) => {
+const executeCodeLocally = async (code, language, stdin = '') => {
   const startTime = performance.now();
 
   if (language === 'javascript') {
@@ -44,7 +44,7 @@ const executeCodeLocally = async (code, language) => {
     const response = await fetch(`${API_BASE_URL}/api/execute`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, language }),
+      body: JSON.stringify({ code, language, stdin }),
       signal: AbortSignal.timeout(30000) // Increased timeout for compilation
     });
     
@@ -103,6 +103,7 @@ const MONACO_LANGUAGE = {
 function App() {
   const [currentLang, setCurrentLang] = useState('python')
   const [code, setCode] = useState(DEFAULT_CODE.python)
+  const [stdin, setStdin] = useState('')
   const [output, setOutput] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -163,7 +164,7 @@ function App() {
     setOutput('')
     setExecutionTime(null)
 
-    const result = await executeCodeLocally(code, currentLang)
+    const result = await executeCodeLocally(code, currentLang, stdin)
 
     if (result.error) {
       setOutput(`❌ ${result.status}:\n${result.error}`)
@@ -182,6 +183,7 @@ function App() {
   const clearOutput = () => {
     setOutput('')
     setExecutionTime(null)
+    setStdin('')
   }
 
   const resetCode = () => {
@@ -394,8 +396,24 @@ function App() {
 
         {/* Output Panel */}
         <aside className="w-96 flex-shrink-0 flex flex-col glass-panel border-l border-white/10">
-          {/* Output Header */}
+          {/* Input Section */}
           <div className="flex-shrink-0 flex items-center justify-between p-3 border-b border-white/5">
+            <div className="flex items-center gap-2">
+              <Zap className="w-5 h-5 text-accentCyan" />
+              <h2 className="font-semibold text-sm uppercase tracking-wide">Input</h2>
+            </div>
+          </div>
+          <div className="h-48 flex-shrink-0 relative">
+            <textarea
+              value={stdin}
+              onChange={(e) => setStdin(e.target.value)}
+              placeholder="Enter your program input here..."
+              className="w-full h-full bg-primary/30 p-4 font-mono text-sm text-textPrimary outline-none resize-none placeholder:text-textSecondary/50"
+            />
+          </div>
+
+          {/* Output Header */}
+          <div className="flex-shrink-0 flex items-center justify-between p-3 border-y border-white/5 bg-white/5">
             <div className="flex items-center gap-2">
               <Terminal className="w-5 h-5 text-accentCyan" />
               <h2 className="font-semibold text-sm uppercase tracking-wide">Output</h2>
@@ -412,7 +430,7 @@ function App() {
                 hover:bg-white/10 hover:text-accentCyan
                 text-textSecondary
               "
-              title="Clear Output"
+              title="Clear All"
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -423,7 +441,7 @@ function App() {
             {output ? (
               <pre className={`
                 font-mono text-sm whitespace-pre-wrap break-words
-                ${output.includes('Error') ? 'text-error' : 'text-success'}
+                ${output.includes('Error') || output.includes('Timed out') ? 'text-error' : 'text-success'}
               `}>
                 {output}
               </pre>

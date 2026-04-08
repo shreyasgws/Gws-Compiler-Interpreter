@@ -69,7 +69,7 @@ const LANGUAGE_IDS = {
 
 const RAPID_API_KEY = process.env.RAPID_API_KEY || '';
 
-function executeLocal(code, language) {
+function executeLocal(code, language, stdin = '') {
   return new Promise((resolve) => {
     const rootTmpDir = os.tmpdir();
     // Create a unique subdirectory for this execution to avoid collisions
@@ -78,6 +78,15 @@ function executeLocal(code, language) {
     let output = '';
     let error = '';
     let proc = null;
+
+    const handleStdin = (targetProc) => {
+      if (stdin && targetProc && targetProc.stdin) {
+        targetProc.stdin.write(stdin);
+        targetProc.stdin.end();
+      } else if (targetProc && targetProc.stdin) {
+        targetProc.stdin.end();
+      }
+    };
 
     const cleanup = () => {
       if (proc) proc.kill();
@@ -102,6 +111,7 @@ function executeLocal(code, language) {
           const isWin = os.platform() === 'win32';
           const pyCmd = findExecutable('python3') || findExecutable('python');
           proc = spawn(isWin ? pyCmd : `"${pyCmd}"`, [`"${filePath}"`], { shell: true });
+          handleStdin(proc);
           proc.stdout.on('data', (data) => { output += data.toString(); });
           proc.stderr.on('data', (data) => { error += data.toString(); });
           proc.on('error', (err) => { error = `Failed to start Python: ${err.message}`; });
@@ -123,6 +133,7 @@ function executeLocal(code, language) {
           const filePath = path.join(userDir, `script.js`);
           fs.writeFileSync(filePath, code);
           proc = spawn('node', [`"${filePath}"`], { shell: true });
+          handleStdin(proc);
           proc.stdout.on('data', (data) => { output += data.toString(); });
           proc.stderr.on('data', (data) => { error += data.toString(); });
           proc.on('error', (err) => { error = `Failed to start Node.js: ${err.message}`; });
@@ -166,6 +177,7 @@ function executeLocal(code, language) {
             }
             
             const runProc = spawn(`"${exePath}"`, [], { shell: true });
+            handleStdin(runProc);
             runProc.stdout.on('data', (data) => { output += data.toString(); });
             runProc.stderr.on('data', (data) => { error += data.toString(); });
             runProc.on('close', (runCode) => {
@@ -209,6 +221,7 @@ function executeLocal(code, language) {
             }
             
             const runProc = spawn(`"${exePath}"`, [], { shell: true });
+            handleStdin(runProc);
             runProc.stdout.on('data', (data) => { output += data.toString(); });
             runProc.stderr.on('data', (data) => { error += data.toString(); });
             runProc.on('close', (runCode) => {
@@ -293,6 +306,7 @@ function executeLocal(code, language) {
             const fullClassName = packageName ? `${packageName}.${className}` : className;
             // Use -cp . to specify the root of the class files
             const runProc = spawn(java, ['-cp', '.', fullClassName], { cwd: userDir });
+            handleStdin(runProc);
             
             runProc.stdout.on('data', (data) => { output += data.toString(); });
             runProc.stderr.on('data', (data) => { error += data.toString(); });
@@ -323,12 +337,12 @@ function executeLocal(code, language) {
   });
 }
 
-async function executeCode(code, language) {
+async function executeCode(code, language, stdin = '') {
   if (RAPID_API_KEY) {
     try {
       const languageId = LANGUAGE_IDS[language];
       if (!languageId) {
-        return await executeLocal(code, language);
+        return await executeLocal(code, language, stdin);
       }
 
       console.log(`Executing via RapidAPI for ${language}...`);
@@ -342,7 +356,7 @@ async function executeCode(code, language) {
         body: JSON.stringify({
           language_id: languageId,
           source_code: code,
-          stdin: '',
+          stdin: stdin,
           cpu_time_limit: 10,
           memory_limit: 128000
         })
@@ -358,16 +372,16 @@ async function executeCode(code, language) {
       };
     } catch (error) {
       console.error('RapidAPI Error, falling back to local:', error.message);
-      return await executeLocal(code, language);
+      return await executeLocal(code, language, stdin);
     }
   }
 
-  return await executeLocal(code, language);
+  return await executeLocal(code, language, stdin);
 }
 
 app.post('/api/execute', async (req, res) => {
   try {
-    const { code, language } = req.body;
+    const { code, language, stdin = '' } = req.body;
     console.log(`Received request to execute ${language}`);
     
     if (!code || !language) {
