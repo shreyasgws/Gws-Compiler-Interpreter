@@ -157,10 +157,10 @@ function App() {
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           className={`
-            absolute left-2 top-1/2 -translate-y-1/2 z-20
-            glow-button flex flex-col items-center justify-center gap-0.5 px-2 py-1.5 rounded-lg
+            absolute left-1.5 top-1/2 -translate-y-1/2 z-20
+            glow-button flex flex-col items-center justify-center gap-0.5 px-1.5 py-1 rounded-lg
             bg-secondary/95 backdrop-blur-sm border border-white/20
-            text-textPrimary font-medium text-[10px]
+            text-textPrimary font-medium text-[8px]
             transition-all duration-300
             hover:bg-accentCyan/20 hover:border-accentCyan/50
             md:static md:flex-row md:px-5 md:py-3 md:text-sm md:translate-y-0 md:ml-0 md:gap-2
@@ -170,12 +170,13 @@ function App() {
           {sidebarOpen ? (
             <>
               <ChevronLeft className="w-3 h-3 text-accentCyan md:w-5 md:h-5" />
-              <span className="md:hidden">Close</span>
+              <span className="hidden md:inline">Close</span>
             </>
           ) : (
             <>
               <ChevronRight className="w-3 h-3 text-accentCyan md:w-5 md:h-5" />
-              <span className="md:hidden leading-tight">Other<br/>Languages</span>
+              <span className="md:hidden text-[9px] leading-tight">Languages</span>
+              <span className="hidden md:inline">Other Languages</span>
             </>
           )}
         </button>

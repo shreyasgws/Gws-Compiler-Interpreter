@@ -5,7 +5,7 @@ import { spawn as _spawn, spawnSync } from 'child_process';
 const spawn = (command, args, options = {}) => {
   const isWin = os.platform() === 'win32';
   if (!isWin && options && options.shell) {
-    const limits = 'ulimit -t 20; ulimit -u 64; ulimit -f 5120; ulimit -v 1048576; ';
+    const limits = 'ulimit -t 30 2>/dev/null; ulimit -v 524288 2>/dev/null; ';
     command = `${limits} ${command}`;
   }
   return _spawn(command, args, options);
