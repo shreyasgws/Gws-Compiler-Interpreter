@@ -5,7 +5,7 @@ import { spawn as _spawn, spawnSync } from 'child_process';
 const spawn = (command, args, options = {}) => {
   const isWin = os.platform() === 'win32';
   if (!isWin && options && options.shell) {
-    const limits = 'ulimit -t 30 2>/dev/null; ulimit -v 524288 2>/dev/null; ';
+    const limits = 'ulimit -t 10 2>/dev/null; ulimit -v 262144 2>/dev/null; ';
     command = `${limits} ${command}`;
   }
   return _spawn(command, args, options);
@@ -143,7 +143,7 @@ function executeLocal(code, language, stdin = '') {
         case 'javascript': {
           const filePath = path.join(userDir, `script.js`);
           fs.writeFileSync(filePath, code);
-          proc = spawn('node', [`"${filePath}"`], { shell: true });
+          proc = spawn('node', ['--max-old-space-size=64', `"${filePath}"`], { shell: true });
           handleStdin(proc);
           proc.stdout.on('data', (data) => { output += data.toString(); });
           proc.stderr.on('data', (data) => { error += data.toString(); });
@@ -270,7 +270,7 @@ function executeLocal(code, language, stdin = '') {
             cleanup();
             resolve({ 
               output: '', 
-              error: 'No class, interface, enum, or record definition found in Java code.', 
+              error: 'Java compilation failed.\n\nTip: Ensure class name matches file name and avoid heavy memory usage.', 
               time: '0s', 
               status: 'Compilation Error' 
             });
@@ -319,8 +319,8 @@ function executeLocal(code, language, stdin = '') {
             
             const java = findExecutable('java');
             const fullClassName = packageName ? `${packageName}.${className}` : className;
-            // Use -cp . to specify the root of the class files
-            const runProc = spawn(`"${java}"`, ['-cp', '.', fullClassName], { cwd: userDir, shell: true });
+            // Use -cp . to specify the root of the class files, -Xmx64m limits memory to 64MB
+            const runProc = spawn(`"${java}"`, ['-Xmx64m', '-cp', '.', fullClassName], { cwd: userDir, shell: true });
             handleStdin(runProc);
             
             runProc.stdout.on('data', (data) => { output += data.toString(); });
@@ -430,11 +430,31 @@ const activeProcesses = new Map();
 io.on('connection', (socket) => {
   console.log('Client connected for interactive terminal');
 
-  socket.on('run', async ({ code, language }) => {
+  const BLOCKED_PATTERNS = [
+      'while(true)', 'while (true)',
+      'fork(', 'child_process',
+      'system(', 'execSync',
+      'spawnSync', 'spawn\''
+    ];
+
+    const MAX_OUTPUT_SIZE = 5000;
+    let outputSize = 0;
+    socket.emit('output', '\n');
+
+    const isCodeBlocked = BLOCKED_PATTERNS.some(pattern => 
+      code.toLowerCase().includes(pattern.toLowerCase())
+    );
+    if (isCodeBlocked) {
+      socket.emit('output', '\n⚠️ Execution blocked: Potentially unsafe code detected.\n');
+      socket.emit('exit', { code: 1, message: '\n\n=== Execution Blocked ===' });
+      return;
+    }
+
     const rootTmpDir = os.tmpdir();
     const userDir = fs.mkdtempSync(path.join(rootTmpDir, `gws-socket-${Date.now()}-`));
     const startTime = Date.now();
     let proc = null;
+    let processTimeout = null;
 
     const cleanup = () => {
       if (proc) proc.kill();
@@ -447,6 +467,11 @@ io.on('connection', (socket) => {
     socket.on('disconnect', cleanup);
     socket.on('stop', cleanup);
 
+    const processTimeout = setTimeout(() => {
+      socket.emit('output', '\n\n=== Execution timed out (10s limit) ===');
+      cleanup();
+    }, 10000);
+
     try {
       const isWin = os.platform() === 'win32';
       
@@ -455,14 +480,27 @@ io.on('connection', (socket) => {
         activeProcesses.set(socket.id, proc);
 
         proc.stdout.on('data', (data) => {
+          outputSize += data.length;
+          if (outputSize > MAX_OUTPUT_SIZE) {
+            socket.emit('output', '\n\n⚠️ Output limit exceeded (5KB)');
+            proc.kill();
+            return;
+          }
           socket.emit('output', data.toString());
         });
 
         proc.stderr.on('data', (data) => {
+          outputSize += data.length;
+          if (outputSize > MAX_OUTPUT_SIZE) {
+            socket.emit('output', '\n\n⚠️ Output limit exceeded (5KB)');
+            proc.kill();
+            return;
+          }
           socket.emit('output', data.toString());
         });
 
         proc.on('close', (exitCode) => {
+          clearTimeout(processTimeout);
           const duration = ((Date.now() - startTime) / 1000).toFixed(3);
           socket.emit('exit', {
             code: exitCode,
@@ -486,10 +524,10 @@ io.on('connection', (socket) => {
           startProcess(isWin ? pyCmd : `"${pyCmd}"`, [`"${filePath}"`]);
           break;
         }
-        case 'javascript': {
-          const filePath = path.join(userDir, `script.js`);
-          fs.writeFileSync(filePath, code);
-          startProcess('node', [`"${filePath}"`]);
+case 'javascript': {
+           const filePath = path.join(userDir, `script.js`);
+           fs.writeFileSync(filePath, code);
+           startProcess('node', ['--max-old-space-size=64', `"${filePath}"`]);
           break;
         }
         case 'cpp': {
@@ -532,7 +570,7 @@ io.on('connection', (socket) => {
           const className = (publicClassMatch && publicClassMatch[1]) || (anyClassMatch && anyClassMatch[1]);
 
           if (!className) {
-            socket.emit('output', 'No class name found.');
+            socket.emit('output', 'Java compilation failed.\n\nTip: Ensure class name matches file name and avoid heavy memory usage.');
             return;
           }
 
@@ -547,14 +585,21 @@ io.on('connection', (socket) => {
           const javac = findExecutable('javac');
           const compileProc = spawn(`"${javac}"`, [relativeSrcPath], { cwd: userDir, shell: true });
           
-          compileProc.stderr.on('data', (data) => socket.emit('output', data.toString()));
+          let compileError = '';
+          compileProc.stderr.on('data', (data) => { 
+            compileError += data.toString(); 
+            socket.emit('output', data.toString());
+          });
           compileProc.on('close', (cCode) => {
             if (cCode === 0) {
               const java = findExecutable('java');
               const fullClassName = packageName ? `${packageName}.${className}` : className;
-              startProcess(`"${java}"`, ['-cp', '.', fullClassName], { cwd: userDir });
+              startProcess(`"${java}"`, ['-Xmx64m', '-cp', '.', fullClassName], { cwd: userDir });
             } else {
-              socket.emit('exit', { code: cCode, message: '\n\n=== Compilation Failed ===' });
+              socket.emit('exit', { 
+                code: cCode, 
+                message: `\n\n=== Compilation Failed ===\n\nTip: Ensure class name matches file name (Main.java → public class Main)` 
+              });
             }
           });
           break;
@@ -568,7 +613,11 @@ io.on('connection', (socket) => {
   socket.on('stdin', (data) => {
     const proc = activeProcesses.get(socket.id);
     if (proc && proc.stdin) {
-      proc.stdin.write(data);
+      try {
+        proc.stdin.write(data);
+      } catch (err) {
+        socket.emit('output', `\nWarning: Could not write input - ${err.message}`);
+      }
     }
   });
 });

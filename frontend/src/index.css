@@ -65,3 +65,8 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #484f58;
 }
+
+@keyframes blink {
+  0%, 100% { visibility: visible; }
+  50% { visibility: hidden; }
+}

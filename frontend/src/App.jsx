@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Editor from '@monaco-editor/react'
-import { Play, Trash2, ChevronLeft, ChevronRight, Code2, Loader2, Terminal, Zap, RotateCcw, AlertTriangle, FileOutput, FileInput } from 'lucide-react'
+import { Play, Trash2, ChevronLeft, ChevronRight, Code2, Loader2, Terminal, Zap, RotateCcw, AlertTriangle, FileOutput, FileInput, Share2 } from 'lucide-react'
 import { io } from 'socket.io-client'
 
 // API and Socket Base URL - empty string uses the current host (proxy in dev)
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 const socket = io(BASE_URL || window.location.origin, {
   autoConnect: false,
-  reconnection: true
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000
 });
 
 const LANGUAGES = [
@@ -44,17 +46,31 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [executionTime, setExecutionTime] = useState(null)
   const [backendStatus, setBackendStatus] = useState('connecting')
+  const [executionPhase, setExecutionPhase] = useState(null)
+  const [isReconnecting, setIsReconnecting] = useState(false)
   const [mobileView, setMobileView] = useState('code')
   const editorRef = useRef(null)
   const outputEndRef = useRef(null)
   const consoleRef = useRef(null)
+  const hiddenInputRef = useRef(null)
 
   useEffect(() => {
     socket.connect();
 
-    socket.on('connect', () => setBackendStatus('online'));
+    socket.on('connect', () => {
+      setBackendStatus('online');
+      setIsReconnecting(false);
+    });
     socket.on('connect_error', () => setBackendStatus('offline'));
     socket.on('disconnect', () => setBackendStatus('offline'));
+    socket.on('reconnecting', (attempt) => {
+      setIsReconnecting(true);
+      setBackendStatus('connecting');
+    });
+    socket.on('reconnect', (attempt) => {
+      setIsReconnecting(false);
+      setBackendStatus('online');
+    });
 
     socket.on('output', (data) => {
       setOutput(prev => prev + data);
@@ -62,6 +78,7 @@ function App() {
 
     socket.on('exit', ({ time, message }) => {
       setExecutionTime(time);
+      setExecutionPhase(null);
       setOutput(prev => prev + message);
       setIsRunning(false);
     });
@@ -70,6 +87,8 @@ function App() {
       socket.off('connect');
       socket.off('connect_error');
       socket.off('disconnect');
+      socket.off('reconnecting');
+      socket.off('reconnect');
       socket.off('output');
       socket.off('exit');
       socket.disconnect();
@@ -92,17 +111,71 @@ function App() {
   }, [currentLang])
 
   useEffect(() => {
+    if (isRunning) {
+      setTimeout(() => {
+        hiddenInputRef.current?.focus()
+      }, 100)
+    }
+  }, [isRunning])
+
+  useEffect(() => {
     localStorage.setItem(`gws_code_${currentLang}`, code)
   }, [code, currentLang])
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sharedCode = params.get('code');
+    const sharedLang = params.get('lang');
+    if (sharedCode) {
+      try {
+        const decoded = atob(sharedCode);
+        setCode(decoded);
+        if (sharedLang && LANGUAGES.find(l => l.id === sharedLang)) {
+          setCurrentLang(sharedLang);
+        }
+      } catch (e) {
+        console.error('Failed to decode shared code');
+      }
+    }
+  }, []);
+
   const handleEditorDidMount = (editor) => {
     editorRef.current = editor
+  }
+
+  const clearOutput = () => {
+    setOutput('')
+    setExecutionTime(null)
+    setUserInput('')
+  }
+
+  const handleKeyDown = (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        clearOutput();
+      }
+    }
+  }
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const shareCode = () => {
+    const encoded = btoa(code);
+    const url = `${window.location.origin}${window.location.pathname}?code=${encoded}&lang=${currentLang}`;
+    navigator.clipboard.writeText(url).then(() => {
+      alert('Share URL copied to clipboard!');
+    });
   }
 
   const runCode = () => {
     if (isRunning) {
       socket.emit('stop');
       setIsRunning(false);
+      setExecutionPhase(null);
       return;
     }
 
@@ -111,23 +184,11 @@ function App() {
     setExecutionTime(null);
     setUserInput('');
     setMobileView('terminal');
+    
+    const language = currentLang;
+    const needsCompile = ['cpp', 'c', 'java'].includes(language);
+    setExecutionPhase(needsCompile ? 'Compiling...' : 'Running...');
     socket.emit('run', { code, language: currentLang });
-    if (consoleRef.current) consoleRef.current.focus();
-  }
-
-  const handleConsoleKeyDown = (e) => {
-    if (!isRunning) return;
-
-    if (e.key === 'Enter') {
-      const input = userInput + '\n';
-      setOutput(prev => prev + userInput + '\n');
-      socket.emit('stdin', input);
-      setUserInput('');
-    } else if (e.key === 'Backspace') {
-      setUserInput(prev => prev.slice(0, -1));
-    } else if (e.key.length === 1) {
-      setUserInput(prev => prev + e.key);
-    }
   }
 
   const clearOutput = () => {
@@ -191,12 +252,21 @@ function App() {
         </div>
 
         <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 rounded-full glass-panel border border-white/10">
-          <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${
-            backendStatus === 'online' ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-          }`} />
-          <span className="text-[10px] md:text-xs text-textSecondary">
-            {backendStatus === 'online' ? 'Online' : 'Offline'}
-          </span>
+          {isReconnecting ? (
+            <>
+              <Loader2 className="w-3 h-3 text-yellow-500 animate-spin" />
+              <span className="text-[10px] md:text-xs text-yellow-500">Reconnecting...</span>
+            </>
+          ) : (
+            <>
+              <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${
+                backendStatus === 'online' ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+              }`} />
+              <span className="text-[10px] md:text-xs text-textSecondary">
+                {backendStatus === 'online' ? 'Online' : 'Offline'}
+              </span>
+            </>
+          )}
         </div>
       </header>
 
@@ -291,6 +361,19 @@ function App() {
                 <span>Reset</span>
               </button>
 
+              <button
+                onClick={shareCode}
+                className="
+                  flex items-center gap-2 px-4 py-3 rounded-lg
+                  bg-white/5 border border-white/10 text-textSecondary text-sm font-medium
+                  transition-all duration-200 hover:bg-white/10 hover:text-accentCyan
+                "
+                title="Share Code"
+              >
+                <Share2 className="w-4 h-4" />
+                <span>Share</span>
+              </button>
+
               <div className="hidden md:flex items-center gap-2 text-xs text-textSecondary">
                 <Zap className="w-4 h-4" />
                 <span>Ctrl + Enter</span>
@@ -318,6 +401,7 @@ function App() {
               options={{
                 fontSize: 14,
                 fontFamily: "'Fira Code', 'Consolas', monospace",
+                fontLigatures: false,
                 minimap: { enabled: false },
                 scrollBeyondLastLine: false,
                 padding: { top: 16, bottom: 16 },
@@ -325,7 +409,12 @@ function App() {
                 roundedSelection: true,
                 automaticLayout: true,
                 tabSize: 4,
-                wordWrap: 'on'
+                wordWrap: 'on',
+                smoothScrolling: true,
+                cursorSmoothCaretAnimation: 'on',
+                renderLineHighlight: 'line',
+                occurrencesHighlight: 'off',
+                selectionHighlight: false
               }}
             />
           </div>
@@ -357,10 +446,10 @@ function App() {
                   {executionTime}
                 </span>
               )}
-              {isRunning && (
+              {isRunning && executionPhase && (
                 <span className="flex items-center gap-1.5 px-2 py-0.5 bg-accentCyan/10 text-accentCyan text-[10px] uppercase font-bold rounded animate-pulse">
-                  <div className="w-1.5 h-1.5 rounded-full bg-accentCyan"></div>
-                  Running
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  {executionPhase}
                 </span>
               )}
               <button
@@ -376,20 +465,32 @@ function App() {
           {/* Interactive Console */}
           <div 
             ref={consoleRef}
-            tabIndex={0}
-            onKeyDown={handleConsoleKeyDown}
-            onFocus={() => setIsConsoleFocused(true)}
-            onBlur={() => setIsConsoleFocused(false)}
+            onClick={() => hiddenInputRef.current?.focus()}
             className="flex-1 overflow-auto p-4 bg-primary/80 font-mono text-sm outline-none cursor-text custom-scrollbar group"
           >
+            <textarea
+              ref={hiddenInputRef}
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (!isRunning) return;
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const input = userInput + '\n';
+                  setOutput(prev => prev + userInput + '\n');
+                  socket.emit('stdin', input);
+                  setUserInput('');
+                }
+              }}
+              className="absolute opacity-0 pointer-events-none"
+              style={{ left: -9999 }}
+            />
             <div className="whitespace-pre-wrap break-words">
               {output}
               {isRunning && (
                 <span className="inline-block">
                   <span className="text-accentCyan">{userInput}</span>
-                  {isConsoleFocused && (
-                    <span className="inline-block w-2 h-4 ml-0.5 bg-accentCyan animate-pulse align-middle"></span>
-                  )}
+                  <span className="inline-block w-[2px] h-5 ml-1 bg-accentCyan animate-[blink_1s_steps(2,start)_infinite] align-middle"></span>
                 </span>
               )}
               {!output && !isRunning && (
