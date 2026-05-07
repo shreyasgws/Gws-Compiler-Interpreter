@@ -1,12 +1,13 @@
 FROM node:20-slim
 
-# Install Java, C++, and Python compilers/interpreters
+# Install Java, C++, Python compilers/interpreters, and node-pty build deps
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    openjdk-17-jdk-headless \
-    g++ \
-    gcc \
     python3 \
+    make \
+    g++ \
+    openjdk-17-jdk-headless \
+    gcc \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

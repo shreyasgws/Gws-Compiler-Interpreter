@@ -1,23 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Editor from '@monaco-editor/react'
-import { Play, Trash2, ChevronLeft, ChevronRight, Code2, Loader2, Terminal, Zap, RotateCcw, AlertTriangle, FileOutput, FileInput, Share2 } from 'lucide-react'
-import { io } from 'socket.io-client'
-
-// API and Socket Base URL - empty string uses the current host (proxy in dev)
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
-const socket = io(BASE_URL || window.location.origin, {
-  autoConnect: false,
-  reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 1000
-});
+import { Play, Square, RotateCcw, Share2, Copy, Terminal, Code2, ChevronDown } from 'lucide-react'
+import LZString from 'lz-string'
+import CommandPalette from './components/CommandPalette'
+import HelpOverlay from './components/HelpOverlay'
+import { useTerminal } from './hooks/useTerminal'
 
 const LANGUAGES = [
-  { id: 'python', name: 'Python', icon: '🐍', compiler: 'Interpreter', color: '#3776ab', glow: '#3776ab' },
-  { id: 'cpp', name: 'C++', icon: '⚙️', compiler: 'Compiler', color: '#00599c', glow: '#00d4ff' },
+  { id: 'python', name: 'Python', icon: '\u{1f40d}', compiler: 'Interpreter', color: '#3776ab', glow: '#3776ab' },
+  { id: 'cpp', name: 'C++', icon: '\u2699\ufe0f', compiler: 'Compiler', color: '#00599c', glow: '#00d4ff' },
   { id: 'javascript', name: 'JavaScript', icon: 'JS', compiler: 'Interpreter', color: '#f7df1e', glow: '#f7df1e' },
-  { id: 'java', name: 'Java', icon: '☕', compiler: 'Compiler', color: '#007396', glow: '#007396' },
-  { id: 'c', name: 'C', icon: '🔧', compiler: 'Compiler', color: '#a8b9cc', glow: '#00d4ff' }
+  { id: 'java', name: 'Java', icon: '\u2615', compiler: 'Compiler', color: '#007396', glow: '#007396' },
+  { id: 'c', name: 'C', icon: '\u{1f527}', compiler: 'Compiler', color: '#a8b9cc', glow: '#00d4ff' }
 ]
 
 const DEFAULT_CODE = {
@@ -37,69 +31,49 @@ const MONACO_LANGUAGE = {
 }
 
 function App() {
+  const {
+    output, isRunning, backendStatus, executionTime, executionPhase,
+    isReconnecting, showColdStart, showRerunToast, setShowRerunToast,
+    queuePosition, setOutput, runCode, stopCode, sendStdin, clearOutput, getLastRunPayload
+  } = useTerminal()
+
   const [currentLang, setCurrentLang] = useState('python')
   const [code, setCode] = useState(DEFAULT_CODE.python)
-  const [output, setOutput] = useState('')
-  const [userInput, setUserInput] = useState('') // Current line being typed
-  const [isRunning, setIsRunning] = useState(false)
-  const [isConsoleFocused, setIsConsoleFocused] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [executionTime, setExecutionTime] = useState(null)
-  const [backendStatus, setBackendStatus] = useState('connecting')
-  const [executionPhase, setExecutionPhase] = useState(null)
-  const [isReconnecting, setIsReconnecting] = useState(false)
+  const [userInput, setUserInput] = useState('')
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [mobileView, setMobileView] = useState('code')
+  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 })
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
+  const [shareToast, setShareToast] = useState(false)
+  const [copyToast, setCopyToast] = useState(false)
+  const [shareWarning, setShareWarning] = useState(false)
+  const [history, setHistory] = useState([])
+  const [showHistory, setShowHistory] = useState(false)
+
   const editorRef = useRef(null)
   const outputEndRef = useRef(null)
   const consoleRef = useRef(null)
   const hiddenInputRef = useRef(null)
+  const codeRef = useRef(code)
+  const currentLangRef = useRef(currentLang)
+  codeRef.current = code
+  currentLangRef.current = currentLang
 
-  useEffect(() => {
-    socket.connect();
+  const currentLangData = LANGUAGES.find(l => l.id === currentLang)
 
-    socket.on('connect', () => {
-      setBackendStatus('online');
-      setIsReconnecting(false);
-    });
-    socket.on('connect_error', () => setBackendStatus('offline'));
-    socket.on('disconnect', () => setBackendStatus('offline'));
-    socket.on('reconnecting', (attempt) => {
-      setIsReconnecting(true);
-      setBackendStatus('connecting');
-    });
-    socket.on('reconnect', (attempt) => {
-      setIsReconnecting(false);
-      setBackendStatus('online');
-    });
-
-    socket.on('output', (data) => {
-      setOutput(prev => prev + data);
-    });
-
-    socket.on('exit', ({ time, message }) => {
-      setExecutionTime(time);
-      setExecutionPhase(null);
-      setOutput(prev => prev + message);
-      setIsRunning(false);
-    });
-
-    return () => {
-      socket.off('connect');
-      socket.off('connect_error');
-      socket.off('disconnect');
-      socket.off('reconnecting');
-      socket.off('reconnect');
-      socket.off('output');
-      socket.off('exit');
-      socket.disconnect();
-    };
-  }, []);
+  const addToHistory = (entry) => {
+    setHistory(prev => [
+      { ...entry, snippet: entry.code.slice(0, 60), id: Date.now() },
+      ...prev
+    ].slice(0, 10))
+  }
 
   useEffect(() => {
     if (outputEndRef.current) {
-      outputEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      outputEndRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [output, userInput]);
+  }, [output, userInput])
 
   useEffect(() => {
     const savedCode = localStorage.getItem(`gws_code_${currentLang}`)
@@ -111,158 +85,225 @@ function App() {
   }, [currentLang])
 
   useEffect(() => {
-    if (isRunning) {
-      setTimeout(() => {
-        hiddenInputRef.current?.focus()
-      }, 100)
-    }
-  }, [isRunning])
-
-  useEffect(() => {
     localStorage.setItem(`gws_code_${currentLang}`, code)
   }, [code, currentLang])
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sharedCode = params.get('code');
-    const sharedLang = params.get('lang');
-    if (sharedCode) {
+    const params = new URLSearchParams(window.location.search)
+    const compressed = params.get('s')
+    const legacyCode = params.get('code')
+    const legacyLang = params.get('lang')
+
+    if (compressed) {
       try {
-        const decoded = atob(sharedCode);
-        setCode(decoded);
-        if (sharedLang && LANGUAGES.find(l => l.id === sharedLang)) {
-          setCurrentLang(sharedLang);
+        const payload = JSON.parse(LZString.decompressFromEncodedURIComponent(compressed))
+        if (payload.codes) {
+          Object.entries(payload.codes).forEach(([lang, c]) => {
+            localStorage.setItem(`gws_code_${lang}`, c)
+          })
+        }
+        if (payload.lang && LANGUAGES.find(l => l.id === payload.lang)) {
+          setCurrentLang(payload.lang)
         }
       } catch (e) {
-        console.error('Failed to decode shared code');
+        console.error('Failed to decode share URL')
       }
+    } else if (legacyCode) {
+      try {
+        const decoded = atob(legacyCode)
+        setCode(decoded)
+        if (legacyLang && LANGUAGES.find(l => l.id === legacyLang)) {
+          setCurrentLang(legacyLang)
+        }
+      } catch (e) {}
     }
-  }, []);
-
-  const handleEditorDidMount = (editor) => {
-    editorRef.current = editor
-  }
-
-  const clearOutput = () => {
-    setOutput('')
-    setExecutionTime(null)
-    setUserInput('')
-  }
-
-  const handleKeyDown = (e) => {
-    if (e.ctrlKey || e.metaKey) {
-      if (e.key === 'l' || e.key === 'L') {
-        e.preventDefault();
-        clearOutput();
-      }
-    }
-  }
+  }, [])
 
   useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const shareCode = () => {
-    const encoded = btoa(code);
-    const url = `${window.location.origin}${window.location.pathname}?code=${encoded}&lang=${currentLang}`;
-    navigator.clipboard.writeText(url).then(() => {
-      alert('Share URL copied to clipboard!');
-    });
-  }
-
-  const runCode = () => {
-    if (isRunning) {
-      socket.emit('stop');
-      setIsRunning(false);
-      setExecutionPhase(null);
-      return;
+    if (isRunning && mobileView === 'terminal') {
+      setTimeout(() => hiddenInputRef.current?.focus(), 100)
     }
+  }, [isRunning, mobileView])
 
-    setIsRunning(true);
-    setOutput('');
-    setExecutionTime(null);
-    setUserInput('');
-    setMobileView('terminal');
-    
-    const language = currentLang;
-    const needsCompile = ['cpp', 'c', 'java'].includes(language);
-    setExecutionPhase(needsCompile ? 'Compiling...' : 'Running...');
-    socket.emit('run', { code, language: currentLang });
+  useEffect(() => {
+    if (!window.visualViewport) return
+    const handler = () => {
+      const kbHeight = window.innerHeight - window.visualViewport.height
+      setKeyboardHeight(Math.max(0, kbHeight))
+    }
+    window.visualViewport.addEventListener('resize', handler)
+    return () => window.visualViewport.removeEventListener('resize', handler)
+  }, [])
+
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault()
+        clearOutput()
+        setUserInput('')
+        return
+      }
+      if (e.key === 'Escape') {
+        setPaletteOpen(false)
+        setHelpOpen(false)
+        return
+      }
+      const tag = document.activeElement?.tagName
+      if (tag === 'TEXTAREA' || tag === 'INPUT') return
+      if (e.key === '?') setHelpOpen(prev => !prev)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [clearOutput])
+
+  const handleEditorDidMount = (editor, monaco) => {
+    editorRef.current = editor
+    editor.addCommand(
+      monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+      () => runCode(codeRef.current, currentLangRef.current, (result) => {
+        addToHistory({ exitCode: result.exitCode, time: result.time, code: codeRef.current, language: currentLangRef.current })
+      })
+    )
+    editor.onDidChangeCursorPosition((e) => {
+      setCursorPos({ line: e.position.lineNumber, col: e.position.column })
+    })
   }
 
-  const clearOutput = () => {
-    setOutput('')
-    setExecutionTime(null)
+  const handleLanguageChange = (langId) => {
+    setCurrentLang(langId)
+    setPaletteOpen(false)
+    clearOutput()
     setUserInput('')
+  }
+
+  const handleRun = () => {
+    const c = codeRef.current
+    const lang = currentLangRef.current
+    runCode(c, lang, (result) => {
+      addToHistory({ exitCode: result.exitCode, time: result.time, code: c, language: lang })
+    })
+    setMobileView('terminal')
+  }
+
+  const handleFabClick = () => {
+    if (isRunning) {
+      stopCode()
+    } else {
+      const c = codeRef.current
+      const lang = currentLangRef.current
+      runCode(c, lang, (result) => {
+        addToHistory({ exitCode: result.exitCode, time: result.time, code: c, language: lang })
+      })
+      setMobileView('terminal')
+    }
   }
 
   const resetCode = () => {
     localStorage.removeItem(`gws_code_${currentLang}`)
     setCode(DEFAULT_CODE[currentLang])
-    setOutput('')
-    setExecutionTime(null)
+    clearOutput()
+    setUserInput('')
   }
 
-  const handleLanguageChange = (langId) => {
-    setCurrentLang(langId)
-    setSidebarOpen(false)
-    setOutput('')
-    setExecutionTime(null)
+  const shareCode = () => {
+    const allCodes = {}
+    LANGUAGES.forEach(lang => {
+      allCodes[lang.id] = lang.id === currentLang
+        ? code
+        : (localStorage.getItem(`gws_code_${lang.id}`) || DEFAULT_CODE[lang.id])
+    })
+    const payload = JSON.stringify({ codes: allCodes, lang: currentLang })
+    const compressed = LZString.compressToEncodedURIComponent(payload)
+    const url = `${window.location.origin}${window.location.pathname}?s=${compressed}`
+
+    if (url.length > 1800) {
+      setShareWarning(true)
+      setTimeout(() => setShareWarning(false), 5000)
+    }
+
+    navigator.clipboard.writeText(url).then(() => {
+      setShareToast(true)
+      setTimeout(() => setShareToast(false), 2500)
+    })
+  }
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopyToast(true)
+      setTimeout(() => setCopyToast(false), 2000)
+    })
+  }
+
+  const handleInputKeyDown = (e) => {
+    if (!isRunning) return
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const input = userInput + '\n'
+      setOutput(prev => prev + `\u276f ${userInput}\n`)
+      sendStdin(input)
+      setUserInput('')
+    }
+  }
+
+  const getLangStripeClass = () => `lang-stripe-${currentLang}`
+  const lineCount = code.split('\n').length
+  const charCount = code.length
+
+  const renderOutputLine = (line, i) => {
+    if (line.startsWith('[STDERR]')) {
+      return <div key={i} className="text-[#f85149]">{line.slice(8)}</div>
+    }
+    if (line.includes('Error:') || line.includes('Failed') || line.includes('blocked') || line.includes('timed out')) {
+      return <div key={i} className="text-[#f85149]">{line}</div>
+    }
+    if (line.startsWith('\u276f')) {
+      return <div key={i} className="text-[#f59e0b]">{line}</div>
+    }
+    if (line.startsWith('\u2500') || line.startsWith('--')) {
+      return <div key={i} className="text-[#30363d]">{line}</div>
+    }
+    return <div key={i}>{line}</div>
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-primary overflow-hidden">
-      {/* Header */}
-      <header className="relative flex-shrink-0 h-32 flex items-center justify-center bg-gradient-to-b from-secondary to-primary border-b border-white/5 px-16 md:px-0">
+    <div className="h-screen w-screen flex flex-col bg-[#0a0e17] overflow-hidden">
+      {showColdStart && backendStatus !== 'online' && (
+        <div className="cold-start-banner">
+          {'\u23f3'} Server is waking up <span className="opacity-60">{'\u2014'} first connection may take up to 30s on Render free tier</span>
+        </div>
+      )}
+
+      <header className="relative flex-shrink-0 h-20 md:h-24 flex items-center justify-center bg-gradient-to-b from-secondary to-[#0a0e17] border-b border-white/5 px-4 md:px-8">
         <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className={`
-            absolute left-1.5 top-1/2 -translate-y-1/2 z-20
-            glow-button flex flex-col items-center justify-center gap-0.5 px-1.5 py-1 rounded-lg
-            bg-secondary/95 backdrop-blur-sm border border-white/20
-            text-textPrimary font-medium text-[8px]
-            transition-all duration-300
-            hover:bg-accentCyan/20 hover:border-accentCyan/50
-            md:absolute md:left-0 md:flex-row md:px-5 md:py-3 md:text-sm md:translate-y-0 md:ml-0 md:gap-2
-            ${!sidebarOpen ? 'md:translate-x-0' : ''}
-          `}
+          onClick={() => setPaletteOpen(true)}
+          className="absolute left-3 md:left-5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-textSecondary text-xs font-mono tracking-wide hover:bg-accentCyan/10 hover:border-accentCyan/30 hover:text-accentCyan transition-all duration-200"
+          title="Select Language"
         >
-          {sidebarOpen ? (
-            <>
-              <ChevronLeft className="w-3 h-3 text-accentCyan md:w-5 md:h-5" />
-              <span className="hidden md:inline">Close</span>
-            </>
-          ) : (
-            <>
-              <ChevronRight className="w-3 h-3 text-accentCyan md:w-5 md:h-5" />
-              <span className="md:hidden text-[8px] leading-tight">Other<br/>Languages</span>
-              <span className="hidden md:inline">Other Languages</span>
-            </>
-          )}
+          {'\u232b'} Languages
         </button>
 
         <div className="flex flex-col items-center">
-          <h1 className="font-orbitron text-5xl md:text-6xl font-black gws-gradient-text tracking-wider animate-glow">
+          <h1 className="font-orbitron text-4xl md:text-5xl font-black gws-gradient-text tracking-wider">
             GWS
           </h1>
-          <p className={`mt-1 md:mt-2 font-inter text-white/80 text-base md:text-lg tracking-wide ${(currentLang === 'cpp' || currentLang === 'c') ? 'drop-shadow-[0_0_12px_rgba(0,212,255,0.7)]' : 'drop-shadow-[0_0_8px_rgba(0,212,255,0.5)]'}`}>
-            Online <span className={`text-accentCyan font-semibold ${(currentLang === 'cpp' || currentLang === 'c') ? 'drop-shadow-[0_0_15px_rgba(0,212,255,1)]' : 'drop-shadow-[0_0_10px_rgba(0,212,255,0.8)]'}`}>{LANGUAGES.find(l => l.id === currentLang)?.name}</span> {LANGUAGES.find(l => l.id === currentLang)?.compiler}
+          <p className="text-[10px] md:text-xs font-mono text-textSecondary/80 mt-0.5 tracking-wide">
+            <span style={{ color: currentLangData?.color }}>{'\u25cf'}</span>
+            {' '}{currentLangData?.name} <span className="opacity-50">{'\u00b7'}</span> {currentLangData?.compiler}
           </p>
         </div>
 
-        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 rounded-full glass-panel border border-white/10">
+        <div
+          className="absolute right-3 md:right-5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-1 rounded-full bg-white/5 border border-white/10"
+          title="Execution server"
+        >
           {isReconnecting ? (
-            <>
-              <Loader2 className="w-3 h-3 text-yellow-500 animate-spin" />
-              <span className="text-[10px] md:text-xs text-yellow-500">Reconnecting...</span>
-            </>
+            <span className="text-[10px] md:text-xs text-yellow-500 font-mono animate-pulse">Reconnecting...</span>
           ) : (
             <>
               <div className={`w-1.5 h-1.5 md:w-2 md:h-2 rounded-full ${
                 backendStatus === 'online' ? 'bg-green-500 animate-pulse' : 'bg-red-500'
               }`} />
-              <span className="text-[10px] md:text-xs text-textSecondary">
+              <span className="text-[10px] md:text-xs text-textSecondary font-mono">
                 {backendStatus === 'online' ? 'Online' : 'Offline'}
               </span>
             </>
@@ -270,245 +311,294 @@ function App() {
         </div>
       </header>
 
-      <main className="flex-1 flex overflow-hidden">
-        <aside
-          className={`
-            absolute left-0 top-32 h-[calc(100%-8rem)] w-72 z-10
-            glass-panel border-r border-white/10
-            transform transition-transform duration-300 ease-in-out
-            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-          `}
-        >
-          <div className="p-4">
-            <h2 className="font-orbitron text-sm text-textSecondary uppercase tracking-widest mb-4">
-              Programming Languages
-            </h2>
-            <div className="space-y-2">
-              {LANGUAGES.map((lang) => (
-                <button
-                  key={lang.id}
-                  onClick={() => handleLanguageChange(lang.id)}
-                  className={`
-                    w-full flex items-center gap-3 p-3 rounded-lg
-                    transition-all duration-200 group
-                    ${currentLang === lang.id
-                      ? 'bg-accentCyan/20 border border-accentCyan/50'
-                      : 'bg-white/5 border border-transparent hover:bg-white/10'
-                    }
-                  `}
-                  style={currentLang === lang.id && (lang.id === 'cpp' || lang.id === 'c') ? { boxShadow: `0 0 20px ${lang.glow}40` } : {}}
-                >
-                  <span 
-                    className="text-xl w-8 h-8 flex items-center justify-center rounded"
-                    style={{ backgroundColor: lang.color + '30' }}
-                  >
-                    {lang.icon === 'JS' ? (
-                      <span className="font-bold text-sm" style={{ color: lang.color }}>JS</span>
-                    ) : (
-                      <span className="text-lg">{lang.icon}</span>
-                    )}
-                  </span>
-                  <div className="flex-1 text-left">
-                    <p className={`font-medium ${currentLang === lang.id ? 'text-accentCyan' : 'text-textPrimary'}`}>
-                      {lang.name}
-                    </p>
-                    <p className="text-xs text-textSecondary">{lang.compiler}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </aside>
+      {showRerunToast && (
+        <div className="rerun-toast">
+          <span>Reconnected {'\u2014'} re-run last code?</span>
+          <button onClick={() => {
+            const last = getLastRunPayload()
+            if (last) runCode(last.code, last.language)
+            setShowRerunToast(false)
+          }}>Re-run</button>
+          <button onClick={() => setShowRerunToast(false)}>Dismiss</button>
+        </div>
+      )}
 
+      <main className="flex-1 flex overflow-hidden">
         <section className={`flex-1 flex-col min-w-0 ${mobileView === 'code' ? 'flex' : 'hidden md:flex'}`}>
-          <div className="flex-shrink-0 p-3 bg-secondary/50 border-b border-white/5">
-            <div className="flex items-center gap-3">
-              <button 
-                onClick={runCode}
+          <div className={`flex-shrink-0 p-2 md:p-3 bg-secondary/50 border-b border-white/5 ${getLangStripeClass()}`}>
+            <div className="flex items-center gap-2 md:gap-3">
+              <button
+                onClick={handleRun}
                 disabled={backendStatus === 'offline'}
                 className={`
-                  flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all duration-300 transform active:scale-95 shadow-lg
-                  ${isRunning 
-                    ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' 
+                  flex items-center justify-center gap-2 px-4 md:px-6 py-2 md:py-2.5 rounded-xl font-bold transition-all duration-300 active:scale-95 shadow-lg text-sm md:text-base
+                  ${isRunning
+                    ? 'bg-red-600 hover:bg-red-500 text-white'
                     : 'bg-green-600 hover:bg-green-500 hover:shadow-[0_0_25px_rgba(74,222,128,0.6)] text-white'
                   }
                   ${backendStatus === 'offline' ? 'opacity-50 cursor-not-allowed' : ''}
+                  w-full md:w-auto
                 `}
               >
                 {isRunning ? (
-                  <>
-                    <RotateCcw className="w-5 h-5 animate-spin-reverse" />
-                    <span>Stop</span>
-                  </>
+                  <><Square className="w-4 h-4" /><span>Stop</span></>
                 ) : (
-                  <>
-                    <Play className="w-5 h-5" />
-                    <span>Run Code</span>
-                  </>
+                  <><Play className="w-4 h-4" /><span>Run</span></>
                 )}
               </button>
-              
-              <button
-                onClick={resetCode}
-                className="
-                  flex items-center gap-2 px-4 py-3 rounded-lg
-                  bg-white/5 border border-white/10 text-textSecondary text-sm font-medium
-                  transition-all duration-200 hover:bg-white/10 hover:text-textPrimary
-                "
+
+              <button onClick={resetCode}
+                className="hidden md:flex items-center justify-center p-2.5 rounded-lg bg-white/5 border border-white/10 text-textSecondary hover:bg-white/10 hover:text-textPrimary transition-all"
                 title="Reset to Default"
-              >
-                <RotateCcw className="w-4 h-4" />
-                <span>Reset</span>
-              </button>
+              ><RotateCcw className="w-4 h-4" /></button>
+              <button onClick={resetCode}
+                className="md:hidden flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-textSecondary text-xs font-medium hover:bg-white/10 hover:text-textPrimary transition-all"
+              ><RotateCcw className="w-3.5 h-3.5" /><span>Reset</span></button>
 
-              <button
-                onClick={shareCode}
-                className="
-                  flex items-center gap-2 px-4 py-3 rounded-lg
-                  bg-white/5 border border-white/10 text-textSecondary text-sm font-medium
-                  transition-all duration-200 hover:bg-white/10 hover:text-accentCyan
-                "
+              <button onClick={shareCode}
+                className="hidden md:flex items-center justify-center p-2.5 rounded-lg bg-white/5 border border-white/10 text-textSecondary hover:bg-white/10 hover:text-accentCyan transition-all"
                 title="Share Code"
-              >
-                <Share2 className="w-4 h-4" />
-                <span>Share</span>
-              </button>
+              ><Share2 className="w-4 h-4" /></button>
+              <button onClick={shareCode}
+                className="md:hidden flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-textSecondary text-xs font-medium hover:bg-white/10 hover:text-accentCyan transition-all"
+              ><Share2 className="w-3.5 h-3.5" /><span>Share</span></button>
 
-              <div className="hidden md:flex items-center gap-2 text-xs text-textSecondary">
-                <Zap className="w-4 h-4" />
-                <span>Ctrl + Enter</span>
-              </div>
-              <button
-                onClick={() => setMobileView('terminal')}
-                className="md:hidden flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-textSecondary text-sm font-medium hover:bg-white/10 hover:text-white transition-all ml-auto"
-              >
-                <span>Terminal</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
+              <button onClick={copyCode}
+                className="hidden md:flex items-center justify-center p-2.5 rounded-lg bg-white/5 border border-white/10 text-textSecondary hover:bg-white/10 hover:text-accentCyan transition-all"
+                title="Copy Code"
+              ><Copy className="w-4 h-4" /></button>
+              <button onClick={copyCode}
+                className="md:hidden flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-textSecondary text-xs font-medium hover:bg-white/10 hover:text-accentCyan transition-all"
+              ><Copy className="w-3.5 h-3.5" /><span>Copy</span></button>
             </div>
           </div>
 
+          <div className={`flex-1 overflow-hidden flex flex-col ${getLangStripeClass()}`}>
+            <div className="flex-1 overflow-hidden">
+              <Editor
+                height="100%"
+                language={MONACO_LANGUAGE[currentLang]}
+                value={code}
+                onChange={(value) => setCode(value || '')}
+                onMount={handleEditorDidMount}
+                theme="vs-dark"
+                options={{
+                  fontSize: 14,
+                  fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+                  fontLigatures: false,
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  padding: { top: 16, bottom: 16 },
+                  lineNumbers: 'on',
+                  roundedSelection: true,
+                  automaticLayout: true,
+                  tabSize: 4,
+                  wordWrap: 'on',
+                  smoothScrolling: true,
+                  cursorSmoothCaretAnimation: 'on',
+                  renderLineHighlight: 'line',
+                  occurrencesHighlight: 'off',
+                  selectionHighlight: false
+                }}
+              />
+            </div>
 
-          {/* Editor */}
-          <div className="flex-1 overflow-hidden">
-            <Editor
-              height="100%"
-              language={MONACO_LANGUAGE[currentLang]}
-              value={code}
-              onChange={(value) => setCode(value || '')}
-              onMount={handleEditorDidMount}
-              theme="vs-dark"
-              options={{
-                fontSize: 14,
-                fontFamily: "'Fira Code', 'Consolas', monospace",
-                fontLigatures: false,
-                minimap: { enabled: false },
-                scrollBeyondLastLine: false,
-                padding: { top: 16, bottom: 16 },
-                lineNumbers: 'on',
-                roundedSelection: true,
-                automaticLayout: true,
-                tabSize: 4,
-                wordWrap: 'on',
-                smoothScrolling: true,
-                cursorSmoothCaretAnimation: 'on',
-                renderLineHighlight: 'line',
-                occurrencesHighlight: 'off',
-                selectionHighlight: false
-              }}
-            />
+            <div className="editor-status-bar">
+              <div className="flex items-center">
+                <span className={`lang-dot lang-dot-${currentLang}`} />
+                <span>{currentLangData?.name}</span>
+                <span className="status-sep">{'\u00b7'}</span>
+                <span>Ln {cursorPos.line}, Col {cursorPos.col}</span>
+              </div>
+              <div className="flex items-center">
+                <span>UTF-8</span>
+                <span className="status-sep">{'\u00b7'}</span>
+                <span>{lineCount} lines</span>
+                <span className="status-sep">{'\u00b7'}</span>
+                <span>{charCount} chars</span>
+              </div>
+            </div>
           </div>
         </section>
 
-        {/* Unified Terminal Panel */}
-        <aside className={`w-full md:w-96 flex-shrink-0 flex-col glass-panel md:border-l border-white/10 ${mobileView === 'terminal' ? 'flex' : 'hidden md:flex'}`}>
-          {/* Terminal Header */}
-          <div className="flex-shrink-0 flex items-center justify-between p-3 border-b border-white/5 bg-white/5">
+        <aside
+          className={`w-full md:w-96 flex-shrink-0 flex-col border-t md:border-t-0 md:border-l border-white/5 bg-[#0a0e17] ${mobileView === 'terminal' ? 'flex' : 'hidden md:flex'}`}
+          style={keyboardHeight > 0 ? { paddingBottom: keyboardHeight } : undefined}
+        >
+          <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 bg-secondary/30 border-b border-white/5">
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setMobileView('code')}
-                className={`md:hidden flex items-center p-1.5 rounded transition-colors ${
-                  !isRunning && output 
-                    ? 'bg-accentCyan/20 text-accentCyan shadow-[0_0_10px_rgba(0,212,255,0.5)]' 
-                    : 'hover:bg-white/10 text-textSecondary hover:text-white'
-                }`}
-                title="Back to Code"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <Terminal className="w-5 h-5 text-accentCyan hidden md:block" />
-              <h2 className="font-semibold text-sm uppercase tracking-wide hidden md:block">Terminal</h2>
-              <h2 className="md:hidden font-semibold text-sm uppercase tracking-wide text-cyan-400 drop-shadow-[0_0_8px_rgba(0,212,255,0.8)]">Output Terminal</h2>
+              <span className="font-mono text-xs text-accentCyan font-bold">{'>_'}</span>
+              <span className="font-mono text-xs text-textSecondary">Terminal</span>
+              {queuePosition && (
+                <span className="queue-badge">{'\u23f3'} #{queuePosition}</span>
+              )}
             </div>
+
             <div className="flex items-center gap-2">
-              {executionTime && (
-                <span className="text-xs text-textSecondary bg-white/10 px-2 py-0.5 rounded">
+              {isRunning && (
+                <div className="flex items-center gap-2">
+                  <div className="w-16 h-1.5 bg-[#30363d] rounded-full overflow-hidden">
+                    <div className="h-full bg-accentCyan rounded-full animate-progress" />
+                  </div>
+                  <span className="text-[10px] text-accentCyan font-mono">Running</span>
+                </div>
+              )}
+              {executionTime && !isRunning && (
+                <span className="text-[10px] font-mono text-textSecondary/60 bg-white/5 px-1.5 py-0.5 rounded">
                   {executionTime}
                 </span>
               )}
-              {isRunning && executionPhase && (
-                <span className="flex items-center gap-1.5 px-2 py-0.5 bg-accentCyan/10 text-accentCyan text-[10px] uppercase font-bold rounded animate-pulse">
-                  <Loader2 className="w-3 h-3 animate-spin" />
+              {executionPhase && isRunning && (
+                <span className="text-[10px] font-mono text-accentCyan/80 animate-pulse px-1.5 py-0.5 rounded bg-accentCyan/10">
                   {executionPhase}
                 </span>
               )}
               <button
-                onClick={clearOutput}
-                className="p-1.5 rounded hover:bg-white/10 text-textSecondary hover:text-accentCyan transition-colors"
+                onClick={() => { clearOutput(); setUserInput('') }}
+                className="p-1 rounded hover:bg-white/10 text-textSecondary/60 hover:text-accentCyan transition-colors"
                 title="Clear Terminal"
               >
-                <Trash2 className="w-4 h-4" />
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
               </button>
             </div>
           </div>
 
-          {/* Interactive Console */}
-          <div 
+          <div
             ref={consoleRef}
             onClick={() => hiddenInputRef.current?.focus()}
-            className="flex-1 overflow-auto p-4 bg-primary/80 font-mono text-sm outline-none cursor-text custom-scrollbar group"
+            className="flex-1 overflow-auto p-3 font-mono text-[13px] leading-relaxed outline-none cursor-text terminal-body"
           >
             <textarea
               ref={hiddenInputRef}
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (!isRunning) return;
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  const input = userInput + '\n';
-                  setOutput(prev => prev + userInput + '\n');
-                  socket.emit('stdin', input);
-                  setUserInput('');
-                }
-              }}
-              className="absolute opacity-0 pointer-events-none"
-              style={{ left: -9999 }}
+              onKeyDown={handleInputKeyDown}
+              style={{ position: 'fixed', top: -9999, left: -9999, opacity: 0, width: 1, height: 1 }}
             />
-            <div className="whitespace-pre-wrap break-words">
-              {output}
+            <div className="whitespace-pre-wrap break-words text-[#c9d1d9] min-h-full">
+              {output && (
+                <div>{output.split('\n').map(renderOutputLine)}</div>
+              )}
               {isRunning && (
-                <span className="inline-block">
-                  <span className="text-accentCyan">{userInput}</span>
-                  <span className="inline-block w-[2px] h-5 ml-1 bg-accentCyan animate-[blink_1s_steps(2,start)_infinite] align-middle"></span>
+                <span className="inline-block align-middle">
+                  {userInput && <span className="text-accentCyan">{userInput}</span>}
+                  <span className="terminal-cursor" />
                 </span>
               )}
               {!output && !isRunning && (
-                <div className="h-full flex flex-col items-center justify-center text-textSecondary/30 mt-20 select-none">
-                  <Code2 className="w-16 h-16 mb-4 opacity-10" />
-                  <p className="text-sm font-sans tracking-widest uppercase">Select Run Code to start</p>
+                <div className="text-textSecondary/40 font-mono text-xs leading-relaxed select-none mt-4">
+                  <div>GWS Terminal v1.0</div>
+                  <div>{'\u2500'.repeat(18)}</div>
+                  <div className="mt-2">Ready. Press Run or Ctrl+Enter to execute.</div>
                 </div>
               )}
               <div ref={outputEndRef} />
             </div>
           </div>
-          <div className="p-2 border-t border-white/5 bg-black/20">
-            <p className="text-[10px] text-textSecondary/50 text-center uppercase tracking-tighter">
-              Interactive terminal - type and press Enter
-            </p>
+
+          <div className="flex-shrink-0 h-6 bg-[#060a10] border-t border-white/5 flex items-center justify-between px-3">
+            <span className="text-[10px] font-mono text-textSecondary/30">JetBrains Mono {'\u00b7'} 13px</span>
+            <span className="text-[10px] font-mono text-textSecondary/30 hidden md:inline">{'\u2191\u2193'} scroll</span>
+            <span className="text-[10px] font-mono text-textSecondary/30 md:hidden">Tap terminal {'\u00b7'} type {'\u00b7'} Enter to send</span>
           </div>
+
+          {history.length > 0 && (
+            <div className="history-panel">
+              <button className="history-toggle" onClick={() => setShowHistory(p => !p)}>
+                Recent Runs ({history.length})
+                <ChevronDown className={`w-3 h-3 transition-transform ${showHistory ? 'rotate-180' : ''}`} />
+              </button>
+              {showHistory && (
+                <div className="history-list">
+                  {history.map(entry => (
+                    <button
+                      key={entry.id}
+                      className="history-item"
+                      onClick={() => {
+                        setCurrentLang(entry.language)
+                        setCode(entry.code)
+                      }}
+                    >
+                      <span className={`lang-dot lang-dot-${entry.language}`} />
+                      <span className="history-snippet">{entry.snippet}...</span>
+                      <span className="history-meta">{entry.time}</span>
+                      <span className={entry.exitCode === 0 ? 'text-green-500' : 'text-red-500'}>
+                        {entry.exitCode === 0 ? '\u2713' : '\u2717'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </aside>
       </main>
+
+      {paletteOpen && (
+        <CommandPalette
+          languages={LANGUAGES}
+          currentLang={currentLang}
+          onSelect={handleLanguageChange}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
+
+      {helpOpen && (
+        <HelpOverlay onClose={() => setHelpOpen(false)} />
+      )}
+
+      {copyToast && (
+        <div className="share-toast">{'\u2713'} Code copied to clipboard</div>
+      )}
+
+      {shareToast && (
+        <div className="share-toast">{'\u2713'} Share URL copied to clipboard</div>
+      )}
+
+      {shareWarning && (
+        <div className="rerun-toast" style={{ bottom: 120 }}>
+          {'\u26a0'} Share URL exceeds 1800 chars — may not work in some browsers
+        </div>
+      )}
+
+      <div className="bottom-tab-bar">
+        <button
+          onClick={() => setMobileView('code')}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 ${mobileView === 'code' ? 'text-accentCyan' : 'text-textSecondary'}`}
+        >
+          <Code2 className="w-5 h-5" />
+          <span className="text-[10px] font-medium">&lt;/&gt; Code</span>
+          {mobileView === 'code' && <div className="w-8 h-0.5 bg-accentCyan rounded-full mt-0.5" />}
+        </button>
+        <button
+          onClick={() => setMobileView('terminal')}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 ${mobileView === 'terminal' ? 'text-accentCyan' : 'text-textSecondary'}`}
+        >
+          <Terminal className="w-5 h-5" />
+          <span className="text-[10px] font-medium">{'>_'} Terminal</span>
+          {mobileView === 'terminal' && <div className="w-8 h-0.5 bg-accentCyan rounded-full mt-0.5" />}
+        </button>
+      </div>
+
+      <div className="md:hidden fixed bottom-16 right-4 z-50" style={{ display: mobileView === 'code' || isRunning ? 'block' : 'none' }}>
+        <button
+          onClick={handleFabClick}
+          className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 active:scale-95 ${
+            isRunning
+              ? 'bg-red-600 shadow-[0_0_25px_rgba(220,38,38,0.5)]'
+              : 'bg-accentCyan shadow-[0_0_25px_rgba(0,212,255,0.5)]'
+          }`}
+        >
+          {isRunning ? (
+            <Square className="w-5 h-5 text-white" />
+          ) : (
+            <Play className="w-6 h-6 text-white ml-0.5" />
+          )}
+        </button>
+      </div>
     </div>
   )
 }

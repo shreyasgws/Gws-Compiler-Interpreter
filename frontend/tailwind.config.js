@@ -9,6 +9,8 @@ export default {
       colors: {
         primary: '#0d1117',
         secondary: '#161b22',
+        terminal: '#060a10',
+        amber: { DEFAULT: '#f59e0b' },
         accent: {
           cyan: '#00d4ff',
           purple: '#a855f7'
@@ -22,12 +24,14 @@ export default {
       },
       fontFamily: {
         orbitron: ['Orbitron', 'monospace'],
-        inter: ['Inter', 'sans-serif']
+        inter: ['Inter', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Fira Code', 'monospace']
       },
       animation: {
         'glow': 'glow 2s ease-in-out infinite alternate',
         'slide-in': 'slideIn 0.3s ease-out',
-        'slide-out': 'slideOut 0.3s ease-in'
+        'slide-out': 'slideOut 0.3s ease-in',
+        'progress': 'progress-indeterminate 1.5s ease-in-out infinite'
       },
       keyframes: {
         glow: {
@@ -41,6 +45,11 @@ export default {
         slideOut: {
           '0%': { transform: 'translateX(0)' },
           '100%': { transform: 'translateX(-100%)' }
+        },
+        'progress-indeterminate': {
+          '0%': { width: '0%', marginLeft: '0%' },
+          '50%': { width: '40%' },
+          '100%': { width: '0%', marginLeft: '100%' }
         }
       }
     },
