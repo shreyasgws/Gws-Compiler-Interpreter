@@ -423,7 +423,7 @@ function App() {
 
         <aside
           className={`w-full md:w-96 flex-shrink-0 flex-col border-t md:border-t-0 md:border-l border-white/5 bg-[#0a0e17] ${mobileView === 'terminal' ? 'flex' : 'hidden md:flex'}`}
-          style={keyboardHeight > 0 ? { paddingBottom: keyboardHeight } : undefined}
+          style={{ paddingBottom: keyboardHeight > 0 ? keyboardHeight : (typeof window !== 'undefined' && window.innerWidth < 768 ? 56 : 0) }}
         >
           <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 bg-secondary/30 border-b border-white/5">
             <div className="flex items-center gap-2">
@@ -469,14 +469,14 @@ function App() {
           <div
             ref={consoleRef}
             onClick={() => hiddenInputRef.current?.focus()}
-            className="flex-1 overflow-auto p-3 font-mono text-[13px] leading-relaxed outline-none cursor-text terminal-body"
+            className="flex-1 overflow-auto p-3 font-mono text-[13px] leading-relaxed outline-none cursor-text terminal-body relative max-md:min-h-0"
           >
             <textarea
               ref={hiddenInputRef}
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
               onKeyDown={handleInputKeyDown}
-              style={{ position: 'fixed', top: -9999, left: -9999, opacity: 0, width: 1, height: 1 }}
+              style={{ position: 'absolute', top: 0, left: 0, opacity: 0, width: 1, height: 1, pointerEvents: 'none', zIndex: -1 }}
             />
             <div className="whitespace-pre-wrap break-words text-[#c9d1d9] min-h-full">
               {output && (
