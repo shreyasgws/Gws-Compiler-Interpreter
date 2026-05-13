@@ -266,7 +266,7 @@ function App() {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#0a0e17] overflow-hidden">
+    <div className="h-[100dvh] w-screen flex flex-col bg-[#0a0e17] overflow-hidden pb-[56px] md:pb-0">
       {showColdStart && backendStatus !== 'online' && (
         <div className="cold-start-banner">
           {'\u23f3'} Server is waking up <span className="opacity-60">{'\u2014'} first connection may take up to 30s on Render free tier</span>
@@ -323,7 +323,7 @@ function App() {
         </div>
       )}
 
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 min-h-0 flex overflow-hidden">
         <section className={`flex-1 flex-col min-w-0 ${mobileView === 'code' ? 'flex' : 'hidden md:flex'}`}>
           <div className={`flex-shrink-0 p-2 md:p-3 bg-secondary/50 border-b border-white/5 ${getLangStripeClass()}`}>
             <div className="flex items-center gap-2 md:gap-3">
@@ -469,7 +469,7 @@ function App() {
           <div
             ref={consoleRef}
             onClick={() => hiddenInputRef.current?.focus()}
-            className="flex-1 overflow-auto p-3 font-mono text-[13px] leading-relaxed outline-none cursor-text terminal-body relative max-md:min-h-0"
+            className="flex-1 min-h-0 relative overflow-auto p-3 font-mono text-[13px] leading-relaxed outline-none cursor-text terminal-body"
           >
             <textarea
               ref={hiddenInputRef}
