@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import Editor from '@monaco-editor/react'
-import { Play, Square, RotateCcw, Share2, Copy, Terminal, Code2, ChevronDown } from 'lucide-react'
+import { Play, Square, RotateCcw, Share2, Copy, Terminal, Code2, ChevronDown, Layers } from 'lucide-react'
 import LZString from 'lz-string'
 import CommandPalette from './components/CommandPalette'
 import HelpOverlay from './components/HelpOverlay'
@@ -50,8 +50,10 @@ function App() {
   const [shareWarning, setShareWarning] = useState(false)
   const [history, setHistory] = useState([])
   const [showHistory, setShowHistory] = useState(false)
+  const [stdinValue, setStdinValue] = useState('')
 
   const editorRef = useRef(null)
+  const mobileStdinRef = useRef(null)
   const outputEndRef = useRef(null)
   const consoleRef = useRef(null)
   const hiddenInputRef = useRef(null)
@@ -156,6 +158,33 @@ function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [clearOutput])
 
+  useEffect(() => {
+    const el = document.getElementById('mobile-main')
+    if (!el) return
+    let startX = 0
+    let startY = 0
+
+    const onTouchStart = (e) => {
+      startX = e.touches[0].clientX
+      startY = e.touches[0].clientY
+    }
+
+    const onTouchEnd = (e) => {
+      const dx = e.changedTouches[0].clientX - startX
+      const dy = e.changedTouches[0].clientY - startY
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return
+      if (dx < 0) setMobileView('terminal')
+      else        setMobileView('code')
+    }
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchend',   onTouchEnd,   { passive: true })
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchend',   onTouchEnd)
+    }
+  }, [])
+
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor
     editor.addCommand(
@@ -179,6 +208,7 @@ function App() {
   const handleRun = () => {
     const c = codeRef.current
     const lang = currentLangRef.current
+    if (consoleRef.current) consoleRef.current.scrollTop = 0
     runCode(c, lang, (result) => {
       addToHistory({ exitCode: result.exitCode, time: result.time, code: c, language: lang })
     })
@@ -191,6 +221,7 @@ function App() {
     } else {
       const c = codeRef.current
       const lang = currentLangRef.current
+      if (consoleRef.current) consoleRef.current.scrollTop = 0
       runCode(c, lang, (result) => {
         addToHistory({ exitCode: result.exitCode, time: result.time, code: c, language: lang })
       })
@@ -245,6 +276,15 @@ function App() {
     }
   }
 
+  const handleMobileStdinSubmit = () => {
+    if (!isRunning || !stdinValue) return
+    const line = stdinValue + '\n'
+    setOutput(prev => prev + `\u276f ${stdinValue}\n`)
+    sendStdin(line)
+    setStdinValue('')
+    mobileStdinRef.current?.focus()
+  }
+
   const getLangStripeClass = () => `lang-stripe-${currentLang}`
   const lineCount = code.split('\n').length
   const charCount = code.length
@@ -266,17 +306,20 @@ function App() {
   }
 
   return (
-    <div className="h-[100dvh] w-screen flex flex-col bg-[#0a0e17] overflow-hidden pb-[56px] md:pb-0">
+    <div className="h-[100dvh] w-screen flex flex-col bg-[#0a0e17] overflow-hidden mobile-pb md:pb-0">
       {showColdStart && backendStatus !== 'online' && (
-        <div className="cold-start-banner">
-          {'\u23f3'} Server is waking up <span className="opacity-60">{'\u2014'} first connection may take up to 30s on Render free tier</span>
+        <div className="cold-start-toast">
+          {'\u23f3'} Server waking up
+          <span className="opacity-60 hidden sm:inline">
+            {' '}— first run may take ~30s
+          </span>
         </div>
       )}
 
       <header className="relative flex-shrink-0 h-20 md:h-24 flex items-center justify-center bg-gradient-to-b from-secondary to-[#0a0e17] border-b border-white/5 px-4 md:px-8">
         <button
           onClick={() => setPaletteOpen(true)}
-          className="absolute left-3 md:left-5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-textSecondary text-xs font-mono tracking-wide hover:bg-accentCyan/10 hover:border-accentCyan/30 hover:text-accentCyan transition-all duration-200"
+          className="hidden md:flex absolute left-3 md:left-5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-textSecondary text-xs font-mono tracking-wide hover:bg-accentCyan/10 hover:border-accentCyan/30 hover:text-accentCyan transition-all duration-200"
           title="Select Language"
         >
           {'\u232b'} Languages
@@ -323,7 +366,7 @@ function App() {
         </div>
       )}
 
-      <main className="flex-1 min-h-0 flex overflow-hidden">
+      <main id="mobile-main" className="flex-1 min-h-0 flex overflow-hidden">
         <section className={`flex-1 flex-col min-w-0 ${mobileView === 'code' ? 'flex' : 'hidden md:flex'}`}>
           <div className={`flex-shrink-0 p-2 md:p-3 bg-secondary/50 border-b border-white/5 ${getLangStripeClass()}`}>
             <div className="flex items-center gap-2 md:gap-3">
@@ -383,13 +426,13 @@ function App() {
                 onMount={handleEditorDidMount}
                 theme="vs-dark"
                 options={{
-                  fontSize: 14,
+                  fontSize: typeof window !== 'undefined' && window.innerWidth < 768 ? 13 : 14,
                   fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
                   fontLigatures: false,
                   minimap: { enabled: false },
                   scrollBeyondLastLine: false,
                   padding: { top: 16, bottom: 16 },
-                  lineNumbers: 'on',
+                  lineNumbers: typeof window !== 'undefined' && window.innerWidth < 768 ? 'off' : 'on',
                   roundedSelection: true,
                   automaticLayout: true,
                   tabSize: 4,
@@ -423,7 +466,7 @@ function App() {
 
         <aside
           className={`w-full md:w-96 flex-shrink-0 flex-col border-t md:border-t-0 md:border-l border-white/5 bg-[#0a0e17] ${mobileView === 'terminal' ? 'flex' : 'hidden md:flex'}`}
-          style={{ paddingBottom: keyboardHeight > 0 ? keyboardHeight : (typeof window !== 'undefined' && window.innerWidth < 768 ? 56 : 0) }}
+          style={{ paddingBottom: keyboardHeight > 0 ? keyboardHeight : (typeof window !== 'undefined' && window.innerWidth < 768 ? parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tab-bar-height')) || 56 : 0) }}
         >
           <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 bg-secondary/30 border-b border-white/5">
             <div className="flex items-center gap-2">
@@ -449,7 +492,7 @@ function App() {
                 </span>
               )}
               {executionPhase && isRunning && (
-                <span className="text-[10px] font-mono text-accentCyan/80 animate-pulse px-1.5 py-0.5 rounded bg-accentCyan/10">
+                <span className="text-xs font-mono font-semibold text-accentCyan animate-pulse px-2.5 py-1 rounded-lg bg-accentCyan/10 border border-accentCyan/25 tracking-wide">
                   {executionPhase}
                 </span>
               )}
@@ -491,8 +534,13 @@ function App() {
               {!output && !isRunning && (
                 <div className="text-textSecondary/40 font-mono text-xs leading-relaxed select-none mt-4">
                   <div>GWS Terminal v1.0</div>
-                  <div>{'\u2500'.repeat(18)}</div>
-                  <div className="mt-2">Ready. Press Run or Ctrl+Enter to execute.</div>
+                  <div>{'─'.repeat(18)}</div>
+                  <div className="mt-2 md:hidden">
+                    Ready. Tap <span className="text-accentCyan/60">▶</span> to run your code.
+                  </div>
+                  <div className="mt-2 hidden md:block">
+                    Ready. Press <span className="text-accentCyan/60">Ctrl+Enter</span> to execute.
+                  </div>
                 </div>
               )}
               <div ref={outputEndRef} />
@@ -534,6 +582,33 @@ function App() {
               )}
             </div>
           )}
+          {isRunning && (
+            <div
+              className="md:hidden flex-shrink-0 flex items-center gap-2 px-3 py-2 bg-[#0d1117] border-t border-accentCyan/20"
+              style={{ paddingBottom: keyboardHeight > 0 ? 8 : undefined }}
+            >
+              <span className="font-mono text-xs text-accentCyan select-none">{'\u276f'}</span>
+              <input
+                ref={mobileStdinRef}
+                type="text"
+                value={stdinValue}
+                onChange={e => setStdinValue(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleMobileStdinSubmit() } }}
+                placeholder="stdin — type here, tap Send"
+                className="flex-1 bg-transparent font-mono text-sm text-[#c9d1d9] placeholder:text-textSecondary/30 outline-none"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+              />
+              <button
+                onClick={handleMobileStdinSubmit}
+                className="px-3 py-1 rounded-lg bg-accentCyan/10 border border-accentCyan/30 text-accentCyan text-xs font-mono font-medium active:bg-accentCyan/20 transition-colors"
+              >
+                Send
+              </button>
+            </div>
+          )}
         </aside>
       </main>
 
@@ -565,25 +640,50 @@ function App() {
       )}
 
       <div className="bottom-tab-bar">
-        <button
-          onClick={() => setMobileView('code')}
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 ${mobileView === 'code' ? 'text-accentCyan' : 'text-textSecondary'}`}
-        >
-          <Code2 className="w-5 h-5" />
-          <span className="text-[10px] font-medium">&lt;/&gt; Code</span>
-          {mobileView === 'code' && <div className="w-8 h-0.5 bg-accentCyan rounded-full mt-0.5" />}
-        </button>
-        <button
-          onClick={() => setMobileView('terminal')}
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 ${mobileView === 'terminal' ? 'text-accentCyan' : 'text-textSecondary'}`}
-        >
-          <Terminal className="w-5 h-5" />
-          <span className="text-[10px] font-medium">{'>_'} Terminal</span>
-          {mobileView === 'terminal' && <div className="w-8 h-0.5 bg-accentCyan rounded-full mt-0.5" />}
-        </button>
+        {[
+          { view: 'code',     Icon: Code2,    label: 'Code'     },
+          { view: 'lang',     Icon: Layers,   label: 'Language' },
+          { view: 'terminal', Icon: Terminal, label: 'Terminal' },
+        ].map(({ view, Icon, label }) => {
+          const isActive = view === 'lang'
+            ? paletteOpen
+            : mobileView === view
+          return (
+            <button
+              key={view}
+              onClick={() => {
+                if (view === 'lang') { setPaletteOpen(true); return }
+                setMobileView(view)
+              }}
+              className="flex-1 flex flex-col items-center justify-center gap-1 py-2"
+            >
+              <div className={`
+                flex flex-col items-center gap-1 px-4 py-1.5 rounded-xl
+                transition-all duration-200
+                ${isActive
+                  ? 'bg-accentCyan/10 text-accentCyan'
+                  : 'text-textSecondary hover:text-textPrimary'}
+              `}>
+                <Icon className="w-5 h-5" strokeWidth={isActive ? 2.5 : 1.75} />
+                <span className={`text-[10px] font-medium leading-none
+                                  ${isActive ? 'font-semibold' : ''}`}>
+                  {label}
+                </span>
+              </div>
+            </button>
+          )
+        })}
       </div>
 
-      <div className="md:hidden fixed bottom-16 right-4 z-50" style={{ display: mobileView === 'code' || isRunning ? 'block' : 'none' }}>
+      <div
+        className="md:hidden fixed right-4 z-50 transition-all duration-200"
+        style={{
+          display: mobileView === 'code' || isRunning ? 'block' : 'none',
+          bottom: keyboardHeight > 0
+            ? keyboardHeight + 16
+            : 'calc(var(--tab-bar-height) + 16px)'
+        }}
+      >
         <button
           onClick={handleFabClick}
           className={`w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 active:scale-95 ${
