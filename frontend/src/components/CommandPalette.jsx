@@ -37,6 +37,21 @@ export default function CommandPalette({ languages, currentLang, onSelect, onClo
     return () => document.removeEventListener('mousedown', handleClick);
   }, [onClose]);
 
+  // Bulletproof ESC handler using capture phase
+  // Monaco aggressively intercepts key events. Even if focus stealing fails,
+  // the capture phase on the window guarantees we receive the ESC key first.
+  useEffect(() => {
+    const handleEscapeCapture = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleEscapeCapture, true);
+    return () => window.removeEventListener('keydown', handleEscapeCapture, true);
+  }, [onClose]);
+
   // ESC handler on the overlay element directly — not on window.
   // Element-level onKeyDown fires reliably even when Monaco holds iframe focus,
   // because we explicitly moved focus onto this element on mount.
