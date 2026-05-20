@@ -319,10 +319,11 @@ function App() {
       <header className="relative flex-shrink-0 h-20 md:h-24 flex items-center justify-center bg-gradient-to-b from-secondary to-[#0a0e17] border-b border-white/5 px-4 md:px-8">
         <button
           onClick={() => setPaletteOpen(true)}
-          className="hidden md:flex absolute left-3 md:left-5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-textSecondary text-xs font-mono tracking-wide hover:bg-accentCyan/10 hover:border-accentCyan/30 hover:text-accentCyan transition-all duration-200"
+          className="absolute left-3 md:left-5 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-textSecondary hover:bg-accentCyan/10 hover:border-accentCyan/30 hover:text-accentCyan transition-all duration-200"
           title="Select Language"
         >
-          {'\u232b'} Languages
+          <Layers className="w-4 h-4" strokeWidth={1.75} />
+          <span className="text-[10px] font-medium leading-none">Language</span>
         </button>
 
         <div className="flex flex-col items-center">
