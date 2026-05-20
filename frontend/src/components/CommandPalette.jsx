@@ -6,10 +6,12 @@ export default function CommandPalette({ languages, currentLang, onSelect, onClo
 
   // Pull focus out of Monaco and onto the overlay the moment the palette mounts.
   // tabIndex={-1} makes the overlay div focusable without entering the tab order.
-  // Once focus is on a real DOM element outside Monaco's iframe, keyboard events
-  // flow normally through React's synthetic event system.
+  // We use a small timeout to ensure the DOM is ready and Monaco yields focus.
   useEffect(() => {
-    overlayRef.current?.focus();
+    const timer = setTimeout(() => {
+      overlayRef.current?.focus();
+    }, 10);
+    return () => clearTimeout(timer);
   }, []);
 
   // Number-key shortcut: 1–5 selects a language.
