@@ -74,15 +74,21 @@ export default function CommandPalette({ languages, currentLang, onSelect, onClo
       <div className="palette-container" ref={containerRef}>
         <div className="palette-header">
           <span>Select Language</span>
-          <kbd style={{
-            background: 'rgba(255,255,255,0.08)',
-            border: '1px solid rgba(255,255,255,0.15)',
-            borderRadius: 4,
-            padding: '2px 8px',
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 11,
-            color: '#e6edf3'
-          }}>ESC</kbd>
+          <kbd
+            onClick={onClose}
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 4,
+              padding: '2px 8px',
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 11,
+              color: '#e6edf3',
+              cursor: 'pointer',
+              userSelect: 'none',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+          >ESC</kbd>
         </div>
         {languages.map((lang, i) => (
           <button
